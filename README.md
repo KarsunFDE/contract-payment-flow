@@ -62,8 +62,8 @@ your `docs/pair-unique-debt.md`.
                   └──┬───────────┬──┬────┘
                      │           │  │ traceparent
         ┌────────────▼──┐  ┌─────▼──▼─────────┐
-        │ ContractModification   │  │ InvoiceReview       │   ← Spring Boot 3.x
-        │ Service        │  │ Service          │
+        │ ContractMod    │  │ InvoiceReview    │   ← Spring Boot 2.7.18 (legacy era)
+        │ Service        │  │ Service          │      Java 11, javax.*
         │ (Java) :8081   │  │ (Java) :8082     │
         └────┬───────┬───┘  └────┬─────┬───────┘
              │       │           │     │
@@ -90,9 +90,9 @@ your `docs/pair-unique-debt.md`.
 | Path | Service | Tech | Port |
 |------|---------|------|------|
 | `frontend/` | Angular SPA | Angular 17+ | 4200 |
-| `services/api-gateway/` | Auth edge + routing | Spring Boot 3.2 + Spring Cloud Gateway + OAuth2 Resource Server | 8080 |
-| `services/contract-modification-service/` | FAR/DFARS contract_modification CRUD | Spring Boot 3.2 + JPA (Postgres) + MongoDB | 8081 |
-| `services/invoice-review-service/` | InvoiceReview panel coordination | Spring Boot 3.2 | 8082 |
+| `services/api-gateway/` | Auth edge + routing | Spring Boot 2.7.18 + Spring Security 5 + OAuth2 Resource Server | 8080 |
+| `services/contract-modification-service/` | FAR/DFARS contract_modification CRUD | Spring Boot 2.7.18 + JPA (Postgres) + MongoDB | 8081 |
+| `services/invoice-review-service/` | InvoiceReview panel coordination | Spring Boot 2.7.18 | 8082 |
 | `services/ai-orchestrator/` | LLM/RAG/agent orchestration | Python 3.11 + FastAPI + LangChain v1.0 + Pydantic v2 + boto3 | 8000 |
 | `infra/docker/` | Local dev compose stack | Docker Compose | — |
 | `infra/github-actions/` | CI/CD workflows | GHA | — |
