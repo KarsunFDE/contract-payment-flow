@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * ⚠ DELIBERATE — Item 10:
- *   {@code findAll()} returns contract_modifications across ALL agencies. There is a
+ *   {@code findAll()} returns contractModifications across ALL agencies. There is a
  *   {@code findByAgencyId} method declared below — it just isn't called from
  *   {@code ContractModificationService}. Cohort fixes in W2 Wed by switching all
  *   reads to {@code findByAgencyId} (and resolving agency from JWT).

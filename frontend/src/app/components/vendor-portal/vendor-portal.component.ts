@@ -33,11 +33,11 @@ import { FIXTURE_PROPOSALS, FIXTURE_AMENDMENTS, FIXTURE_CONTRACT_MODIFICATIONS }
         <tbody>
           <tr *ngFor="let p of myProposals()">
             <td>
-              <a [routerLink]="['/public/opportunities', p.contract_modificationId]">{{ titleFor(p.contract_modificationId) }}</a>
+              <a [routerLink]="['/public/opportunities', p.contractModificationId]">{{ titleFor(p.contractModificationId) }}</a>
             </td>
             <td>{{ p.submittedAt | date:'short' }}</td>
             <td>{{ p.volumes.length }}</td>
-            <td>{{ p.amendmentAcks.length }} / {{ amendmentCount(p.contract_modificationId) }}</td>
+            <td>{{ p.amendmentAcks.length }} / {{ amendmentCount(p.contractModificationId) }}</td>
             <td>
               <button *ngIf="needsAck(p)" (click)="ack(p)">Acknowledge amendment</button>
             </td>
@@ -63,11 +63,11 @@ export class VendorPortalComponent {
   }
 
   amendmentCount(solId: string): number {
-    return FIXTURE_AMENDMENTS.filter((a) => a.contract_modificationId === solId).length;
+    return FIXTURE_AMENDMENTS.filter((a) => a.contractModificationId === solId).length;
   }
 
   needsAck(p: any): boolean {
-    return this.amendmentCount(p.contract_modificationId) > p.amendmentAcks.length;
+    return this.amendmentCount(p.contractModificationId) > p.amendmentAcks.length;
   }
 
   ack(p: any): void {

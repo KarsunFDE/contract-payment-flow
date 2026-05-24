@@ -6,7 +6,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 
 /** Contract modification. Workflow 5. */
-@Document(collection = "contract_modifications")
+@Document(collection = "contractModifications")
 public class ContractModification {
 
     @Id

@@ -8,9 +8,9 @@ import { Proposal } from '../models/proposal';
 export class ProposalService {
   constructor(private http: HttpClient) {}
 
-  listForContractModification(contract_modificationId: string): Observable<Proposal[]> {
+  listForContractModification(contractModificationId: string): Observable<Proposal[]> {
     return this.http.get<Proposal[]>(
-      `${environment.apiGatewayUrl}/api/contract-modifications/${contract_modificationId}/proposals`,
+      `${environment.apiGatewayUrl}/api/contract-modifications/${contractModificationId}/proposals`,
     );
   }
 
@@ -21,12 +21,12 @@ export class ProposalService {
   }
 
   acknowledgeAmendment(
-    contract_modificationId: string,
+    contractModificationId: string,
     proposalId: string,
     amendmentNumber: number,
   ): Observable<void> {
     return this.http.post<void>(
-      `${environment.apiGatewayUrl}/api/contract-modifications/${contract_modificationId}/proposals/${proposalId}/acknowledge-amendment`,
+      `${environment.apiGatewayUrl}/api/contract-modifications/${contractModificationId}/proposals/${proposalId}/acknowledge-amendment`,
       { amendmentNumber },
     );
   }

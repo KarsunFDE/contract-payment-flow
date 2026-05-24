@@ -21,14 +21,14 @@ import { Amendment } from '../../models/amendment';
   template: `
     <div class="page-header">
       <div>
-        <h2>Amendments — {{ contract_modificationTitle() }}</h2>
+        <h2>Amendments — {{ contractModificationTitle() }}</h2>
         <div class="subtitle">FAR 15.206 · CO-only issuance · vendor acknowledgement required</div>
       </div>
-      <a [routerLink]="['/contract_modifications', contract_modificationId, 'edit']"><button class="secondary">← Back to contract_modification</button></a>
+      <a [routerLink]="['/contractModifications', contractModificationId, 'edit']"><button class="secondary">← Back to contractModification</button></a>
     </div>
 
     <div class="card" *ngIf="role.currentRole !== 'contracting_officer'">
-      <p>You are not the Contracting Officer for this contract_modification; amendments are read-only.</p>
+      <p>You are not the Contracting Officer for this contractModification; amendments are read-only.</p>
     </div>
 
     <div class="card">
@@ -89,7 +89,7 @@ import { Amendment } from '../../models/amendment';
   `,
 })
 export class AmendmentEditorComponent implements OnInit {
-  contract_modificationId = '';
+  contractModificationId = '';
   amendments: Amendment[] = [];
 
   draft = {
@@ -103,22 +103,22 @@ export class AmendmentEditorComponent implements OnInit {
   constructor(private route: ActivatedRoute, public role: RoleService) {}
 
   ngOnInit(): void {
-    this.contract_modificationId = this.route.snapshot.params['id'];
-    this.amendments = FIXTURE_AMENDMENTS.filter((a) => a.contract_modificationId === this.contract_modificationId);
+    this.contractModificationId = this.route.snapshot.params['id'];
+    this.amendments = FIXTURE_AMENDMENTS.filter((a) => a.contractModificationId === this.contractModificationId);
   }
 
-  contract_modificationTitle(): string {
-    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contract_modificationId)?.title ?? this.contract_modificationId;
+  contractModificationTitle(): string {
+    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contractModificationId)?.title ?? this.contractModificationId;
   }
 
   totalProposalCount(): number {
-    return FIXTURE_PROPOSALS.filter((p) => p.contract_modificationId === this.contract_modificationId).length;
+    return FIXTURE_PROPOSALS.filter((p) => p.contractModificationId === this.contractModificationId).length;
   }
 
   aiDraft(): void {
     // Stubbed — W3 multi-agent flow predicts impact then drafts text.
     this.draft.changeSummary =
-      `Per FAR 15.206, this amendment ${this.draft.changeSummary || 'modifies the contract_modification'} ` +
+      `Per FAR 15.206, this amendment ${this.draft.changeSummary || 'modifies the contractModification'} ` +
       `effective ${this.draft.effectiveAt}. Vendors with proposals-in-progress must acknowledge ` +
       `prior to the revised deadline.`;
     this.impactPrediction = {
@@ -132,7 +132,7 @@ export class AmendmentEditorComponent implements OnInit {
     // Stubbed — would call AmendmentService.issue().
     const next: Amendment = {
       id: `am-new-${Date.now()}`,
-      contract_modificationId: this.contract_modificationId,
+      contractModificationId: this.contractModificationId,
       number: this.amendments.length + 1,
       changeSummary: this.draft.changeSummary,
       effectiveAt: new Date(this.draft.effectiveAt).toISOString(),

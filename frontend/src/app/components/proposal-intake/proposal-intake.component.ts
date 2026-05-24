@@ -20,10 +20,10 @@ import { Proposal } from '../../models/proposal';
   template: `
     <div class="page-header">
       <div>
-        <h2>Proposal intake — {{ contract_modificationTitle() }}</h2>
+        <h2>Proposal intake — {{ contractModificationTitle() }}</h2>
         <div class="subtitle">Sealed until deadline · DLA DIBBS-style sealed-bid lockbox</div>
       </div>
-      <a [routerLink]="['/contract_modifications', contract_modificationId, 'edit']"><button class="secondary">← Back to contract_modification</button></a>
+      <a [routerLink]="['/contractModifications', contractModificationId, 'edit']"><button class="secondary">← Back to contractModification</button></a>
     </div>
 
     <div class="kpi-grid">
@@ -72,18 +72,18 @@ import { Proposal } from '../../models/proposal';
   `,
 })
 export class ProposalIntakeComponent implements OnInit {
-  contract_modificationId = '';
+  contractModificationId = '';
   proposals: Proposal[] = [];
 
   constructor(private route: ActivatedRoute) {}
 
   ngOnInit(): void {
-    this.contract_modificationId = this.route.snapshot.params['id'];
-    this.proposals = FIXTURE_PROPOSALS.filter((p) => p.contract_modificationId === this.contract_modificationId);
+    this.contractModificationId = this.route.snapshot.params['id'];
+    this.proposals = FIXTURE_PROPOSALS.filter((p) => p.contractModificationId === this.contractModificationId);
   }
 
-  contract_modificationTitle(): string {
-    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contract_modificationId)?.title ?? this.contract_modificationId;
+  contractModificationTitle(): string {
+    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contractModificationId)?.title ?? this.contractModificationId;
   }
 
   totalVolumes(): number {

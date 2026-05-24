@@ -19,19 +19,19 @@ public class RouteConfig {
 
     @Bean
     public RouteLocator routes(RouteLocatorBuilder builder) {
-        String contract_modificationUrl = System.getenv().getOrDefault(
+        String contractModificationUrl = System.getenv().getOrDefault(
             "CONTRACT_MODIFICATION_SERVICE_URL", "http://contract-modification-service:8081");
-        String invoice_reviewUrl = System.getenv().getOrDefault(
+        String invoiceReviewUrl = System.getenv().getOrDefault(
             "INVOICE_REVIEW_SERVICE_URL", "http://invoice-review-service:8082");
         String aiUrl = System.getenv().getOrDefault(
             "AI_ORCHESTRATOR_URL", "http://ai-orchestrator:8000");
 
         return builder.routes()
-            .route("contract_modifications", r -> r.path("/api/contract-modifications/**").uri(contract_modificationUrl))
-            .route("invoice_reviews",   r -> r.path("/api/invoice-reviews/**").uri(invoice_reviewUrl))
+            .route("contractModifications", r -> r.path("/api/contract-modifications/**").uri(contractModificationUrl))
+            .route("invoiceReviews",   r -> r.path("/api/invoice-reviews/**").uri(invoiceReviewUrl))
             .route("ai",            r -> r.path("/api/ai/**").uri(aiUrl))
             // Item 1 — public path forwards to contract-modification-service after signature-skip.
-            .route("public",        r -> r.path("/api/public/**").uri(contract_modificationUrl))
+            .route("public",        r -> r.path("/api/public/**").uri(contractModificationUrl))
             .build();
     }
 }

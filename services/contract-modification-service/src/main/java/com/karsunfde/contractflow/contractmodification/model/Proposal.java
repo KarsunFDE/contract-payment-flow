@@ -8,8 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Vendor proposal submitted in response to a contract_modification. Sealed until
- * contract_modification closing deadline; visible to evaluators after CO unseals.
+ * Vendor proposal submitted in response to a contractModification. Sealed until
+ * contractModification closing deadline; visible to evaluators after CO unseals.
  *
  * ⚠ Item 2 — unseal is a multi-write transition; race with crash can leave
  * audit-log gap for SSDD-impacting event.
@@ -21,7 +21,7 @@ public class Proposal {
     @Id
     private String id;
 
-    private String contract_modificationId;
+    private String contractModificationId;
     private String vendorId;
     private String agencyId;
 
@@ -39,8 +39,8 @@ public class Proposal {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getContractModificationId() { return contract_modificationId; }
-    public void setContractModificationId(String contract_modificationId) { this.contractmodificationId = contract_modificationId; }
+    public String getContractModificationId() { return contractModificationId; }
+    public void setContractModificationId(String contractModificationId) { this.contractmodificationId = contractModificationId; }
     public String getVendorId() { return vendorId; }
     public void setVendorId(String vendorId) { this.vendorId = vendorId; }
     public String getAgencyId() { return agencyId; }

@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ContractModification } from '../../models/contract_modification';
+import { ContractModification } from '../../models/contract-modification';
 import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
 
 /**
@@ -14,22 +14,22 @@ import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
  * — must filter by agency_id (Item 10).
  */
 @Component({
-  selector: 'app-contract_modification-editor',
+  selector: 'app-contractModification-editor',
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="page-header">
       <div>
-        <h2>{{ contract_modification?.title || 'Draft contract_modification' }}</h2>
+        <h2>{{ contractModification?.title || 'Draft contractModification' }}</h2>
         <div class="subtitle">
-          <span class="badge" [ngClass]="(contract_modification?.status || 'draft').toLowerCase()">{{ contract_modification?.status }}</span>
-          · NAICS {{ contract_modification?.naics }} · {{ contract_modification?.contractType }}
+          <span class="badge" [ngClass]="(contractModification?.status || 'draft').toLowerCase()">{{ contractModification?.status }}</span>
+          · NAICS {{ contractModification?.naics }} · {{ contractModification?.contractType }}
         </div>
       </div>
       <div>
-        <a [routerLink]="['/contract_modifications', id, 'amendments']"><button class="secondary">Amendments</button></a>
-        <a [routerLink]="['/contract_modifications', id, 'qa']"><button class="secondary">Q&amp;A triage</button></a>
-        <a [routerLink]="['/contract_modifications', id, 'proposals']"><button class="secondary">Proposals</button></a>
+        <a [routerLink]="['/contractModifications', id, 'amendments']"><button class="secondary">Amendments</button></a>
+        <a [routerLink]="['/contractModifications', id, 'qa']"><button class="secondary">Q&amp;A triage</button></a>
+        <a [routerLink]="['/contractModifications', id, 'proposals']"><button class="secondary">Proposals</button></a>
       </div>
     </div>
 
@@ -86,7 +86,7 @@ import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
 })
 export class ContractModificationEditorComponent implements OnInit {
   id = '';
-  contract_modification: ContractModification | null = null;
+  contractModification: ContractModification | null = null;
   sectionC = '';
   sectionL = '';
   sectionM = '';
@@ -98,9 +98,9 @@ export class ContractModificationEditorComponent implements OnInit {
 
   ngOnInit(): void {
     this.id = this.route.snapshot.params['id'];
-    this.contract_modification = FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.id)
+    this.contractModification = FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.id)
       ?? FIXTURE_CONTRACT_MODIFICATIONS[0];
-    this.sectionC = `C.1 SCOPE. ${this.contract_modification.description}`;
+    this.sectionC = `C.1 SCOPE. ${this.contractModification.description}`;
     this.sectionL = 'L.5.2 Volume I (Technical) — 60 pages…';
     this.sectionM = 'M.3.1 Technical Approach (40%)\nM.3.2 Management Approach (25%)\nM.3.3 Past Performance (20%)\nM.3.4 Price (15%)';
   }

@@ -1,7 +1,7 @@
 /**
  * Vendor proposal volumes (FAR 15.204).
  *
- * Sealed in MongoDB GridFS until contract_modification deadline. Post-deadline,
+ * Sealed in MongoDB GridFS until contractModification deadline. Post-deadline,
  * CO unseals (atomic + audit-logged — touches Item 2 race surface).
  */
 export interface ProposalVolume {
@@ -13,11 +13,11 @@ export interface ProposalVolume {
 
 export interface Proposal {
   id: string;
-  contract_modificationId: string;
+  contractModificationId: string;
   vendorId: string;
   vendorName: string;
   volumes: ProposalVolume[];
   submittedAt: string;
-  sealedUntil: string;             // ISO — contract_modification deadline
+  sealedUntil: string;             // ISO — contractModification deadline
   amendmentAcks: number[];         // acknowledged amendment numbers
 }

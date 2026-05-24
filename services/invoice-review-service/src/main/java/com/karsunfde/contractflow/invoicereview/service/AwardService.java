@@ -40,13 +40,13 @@ public class AwardService {
         this.auditLogger = auditLogger;
     }
 
-    public Optional<Award> recordAward(String invoice_reviewId, String winningProposalId, String actor) {
-        Optional<InvoiceReview> eOpt = evalRepo.findById(invoice_reviewId);
+    public Optional<Award> recordAward(String invoiceReviewId, String winningProposalId, String actor) {
+        Optional<InvoiceReview> eOpt = evalRepo.findById(invoiceReviewId);
         if (eOpt.isEmpty()) return Optional.empty();
         InvoiceReview e = eOpt.get();
 
         Award a = new Award();
-        a.setInvoiceReviewId(invoice_reviewId);
+        a.setInvoiceReviewId(invoiceReviewId);
         a.setContractModificationId(e.getContractModificationId());
         a.setAgencyId(e.getAgencyId());
         a.setWinningProposalId(winningProposalId);

@@ -21,7 +21,7 @@ public class AuditEvent {
     private String id;
 
     private String action;        // CREATE / UPDATE / DELETE / PUBLISH / AMEND / UNSEAL / AWARD / etc.
-    private String resourceType;  // "contract_modification" / "amendment" / "proposal" / etc.
+    private String resourceType;  // "contractModification" / "amendment" / "proposal" / etc.
     private String resourceId;
     private String actor;
     private String agencyId;

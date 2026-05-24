@@ -1,7 +1,7 @@
 package com.karsunfde.contractflow.contractmodification.dto;
 
 /**
- * Create-contract_modification request DTO.
+ * Create-contractModification request DTO.
  *
  * ⚠ DELIBERATE — Item 9:
  *   No {@code @SafeHtml}, no {@code @NotBlank}, no length cap on

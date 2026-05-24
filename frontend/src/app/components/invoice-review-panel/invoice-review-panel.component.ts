@@ -4,7 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 
 @Component({
-  selector: 'app-invoice_review-panel',
+  selector: 'app-invoiceReview-panel',
   standalone: true,
   imports: [CommonModule],
   template: `
@@ -15,7 +15,7 @@ import { environment } from '../../../environments/environment';
         coordination + HITL interrupt nodes.
       </em>
     </p>
-    <button (click)="createPanel()">Create stub invoice_review panel</button>
+    <button (click)="createPanel()">Create stub invoiceReview panel</button>
     <pre *ngIf="result">{{ result | json }}</pre>
     <p *ngIf="error" style="color: crimson">{{ error }}</p>
   `,
@@ -30,7 +30,7 @@ export class InvoiceReviewPanelComponent {
     this.error = null;
     this.http
       .post(`${environment.apiGatewayUrl}/api/invoice-reviews`, {
-        contract_modificationId: 'stub-contract_modification-id',
+        contractModificationId: 'stub-contractModification-id',
       })
       .subscribe({
         next: (r) => (this.result = r),

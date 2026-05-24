@@ -24,22 +24,22 @@ const NAV: NavGroup[] = [
     title: 'Workspace',
     links: [
       { label: 'Officer Dashboard', route: '/dashboard', roles: ['contracting_officer', 'contract_specialist', 'program_manager', 'ssa'] },
-      { label: 'Evaluator Workspace', route: '/invoice_review/workspace', roles: ['evaluator', 'contracting_officer'] },
+      { label: 'Evaluator Workspace', route: '/invoiceReview/workspace', roles: ['evaluator', 'contracting_officer'] },
       { label: 'Vendor Portal', route: '/vendor/proposals', roles: ['vendor'] },
     ],
   },
   {
     title: 'ContractModifications',
     links: [
-      { label: 'ContractModifications Index', route: '/contract_modifications', roles: ['contracting_officer', 'contract_specialist', 'program_manager'] },
-      { label: 'New ContractModification', route: '/contract_modifications/new', roles: ['contracting_officer', 'contract_specialist'] },
+      { label: 'ContractModifications Index', route: '/contractModifications', roles: ['contracting_officer', 'contract_specialist', 'program_manager'] },
+      { label: 'New ContractModification', route: '/contractModifications/new', roles: ['contracting_officer', 'contract_specialist'] },
       { label: 'Public Opportunity Search', route: '/public/opportunities', roles: [] },
     ],
   },
   {
     title: 'Source Selection',
     links: [
-      { label: 'Consensus + SSDD', route: '/invoice_review/eval-0142/consensus', roles: ['ssa', 'contracting_officer'] },
+      { label: 'Consensus + SSDD', route: '/invoiceReview/eval-0142/consensus', roles: ['ssa', 'contracting_officer'] },
     ],
   },
   {

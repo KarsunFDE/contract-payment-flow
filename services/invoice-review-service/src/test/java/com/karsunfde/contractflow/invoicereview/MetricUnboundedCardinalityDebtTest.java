@@ -38,7 +38,7 @@ class MetricUnboundedCardinalityDebtTest {
             metrics.recordReview("user-" + i, "tenant-a")
         );
 
-        var labelKeys = registry.find("contract_modification.reviewed").meters().stream()
+        var labelKeys = registry.find("contractModification.reviewed").meters().stream()
             .flatMap(m -> m.getId().getTags().stream())
             .map(io.micrometer.core.instrument.Tag::getKey)
             .distinct()

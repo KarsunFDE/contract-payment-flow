@@ -1,5 +1,5 @@
 /**
- * Vendor Q&A on a contract_modification.
+ * Vendor Q&A on a contractModification.
  *
  * Vendor question → CS triage → CS drafts answer (AI-assisted via
  * `POST /answer-qa`) → CO approves → published to all registered
@@ -7,7 +7,7 @@
  */
 export interface Qna {
   id: string;
-  contract_modificationId: string;
+  contractModificationId: string;
   question: string;
   answer: string | null;
   vendorId: string;                // redacted on publish

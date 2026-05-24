@@ -14,13 +14,13 @@ import java.util.List;
  * ⚠ Item 3 — fetching proposal text for scoring is the canonical reproducer
  * for the no-circuit-breaker debt (evaluator → contract-modification-service hot loop).
  */
-@Document(collection = "invoice_reviews")
+@Document(collection = "invoiceReviews")
 public class InvoiceReview {
 
     @Id
     private String id;
 
-    private String contract_modificationId;
+    private String contractModificationId;
     private String agencyId;
     private String state;
     private List<String> panelMembers = new ArrayList<>();
@@ -33,8 +33,8 @@ public class InvoiceReview {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getContractModificationId() { return contract_modificationId; }
-    public void setContractModificationId(String contract_modificationId) { this.contractmodificationId = contract_modificationId; }
+    public String getContractModificationId() { return contractModificationId; }
+    public void setContractModificationId(String contractModificationId) { this.contractmodificationId = contractModificationId; }
     public String getAgencyId() { return agencyId; }
     public void setAgencyId(String agencyId) { this.agencyId = agencyId; }
     public String getState() { return state; }

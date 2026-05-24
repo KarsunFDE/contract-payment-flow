@@ -26,39 +26,39 @@ import java.util.List;
  *     legacy LangChain path (see legacy_chain.py in ai-orchestrator).
  *   - Item 6 — no correlation-ID threaded into the notification log.
  *   - Item 10 — "registered vendors" matcher ignores agency_id; can leak
- *     a contract_modification notice to vendors outside the issuing agency.
+ *     a contractModification notice to vendors outside the issuing agency.
  */
 @Component
 public class Notifier {
 
     private static final Logger log = LoggerFactory.getLogger(Notifier.class);
 
-    public void contract_modificationPublished(String contract_modificationId, String agencyId,
+    public void contractModificationPublished(String contractModificationId, String agencyId,
                                        String naics, List<String> vendorEmails) {
         // ⚠ Item 10 — vendorEmails is computed without agency_id filter
         // upstream; cohort discovers in W4 Wed.
-        log.info("notify[PUBLISH] contract_modificationId={} agencyId={} naics={} recipients={}",
-            contract_modificationId, agencyId, naics, vendorEmails.size());
+        log.info("notify[PUBLISH] contractModificationId={} agencyId={} naics={} recipients={}",
+            contractModificationId, agencyId, naics, vendorEmails.size());
     }
 
-    public void amendmentIssued(String contract_modificationId, int amendmentNumber,
+    public void amendmentIssued(String contractModificationId, int amendmentNumber,
                                  List<String> vendorEmails) {
         // ⚠ Item 2 — fire-and-forget; not in the audit transaction.
-        log.info("notify[AMEND] contract_modificationId={} amendment={} recipients={}",
-            contract_modificationId, amendmentNumber, vendorEmails.size());
+        log.info("notify[AMEND] contractModificationId={} amendment={} recipients={}",
+            contractModificationId, amendmentNumber, vendorEmails.size());
     }
 
-    public void proposalReceived(String contract_modificationId, String proposalId,
+    public void proposalReceived(String contractModificationId, String proposalId,
                                   List<String> agencyEmails) {
         // ⚠ Item 6 — correlation-id not present.
-        log.info("notify[PROPOSAL_RX] contract_modificationId={} proposalId={} recipients={}",
-            contract_modificationId, proposalId, agencyEmails.size());
+        log.info("notify[PROPOSAL_RX] contractModificationId={} proposalId={} recipients={}",
+            contractModificationId, proposalId, agencyEmails.size());
     }
 
-    public void invoice_reviewDue(String invoice_reviewId, List<String> evaluatorEmails) {
+    public void invoiceReviewDue(String invoiceReviewId, List<String> evaluatorEmails) {
         // ⚠ Item 3 — no retry/circuit on notification dispatch path.
-        log.info("notify[EVAL_DUE] invoice_reviewId={} recipients={}",
-            invoice_reviewId, evaluatorEmails.size());
+        log.info("notify[EVAL_DUE] invoiceReviewId={} recipients={}",
+            invoiceReviewId, evaluatorEmails.size());
     }
 
     public void awardDecision(String awardId, String winningVendorEmail,

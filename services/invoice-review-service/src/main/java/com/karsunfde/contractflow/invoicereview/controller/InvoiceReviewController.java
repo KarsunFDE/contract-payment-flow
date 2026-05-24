@@ -25,38 +25,38 @@ import java.util.Map;
  * ⚠ DELIBERATE — Item 3 reinforcement:
  *   POST /api/invoice-reviews is a state-mutating endpoint that does NOT accept
  *   or honour an Idempotency-Key header. A retry from the client creates
- *   duplicate invoice_reviews.
+ *   duplicate invoiceReviews.
  */
 @RestController
 @RequestMapping("/api/invoice-reviews")
 public class InvoiceReviewController {
 
-    private final ContractModificationClient contract_modificationClient;
+    private final ContractModificationClient contractModificationClient;
     private final InvoiceReviewService svc;
 
     @Autowired
-    public InvoiceReviewController(ContractModificationClient contract_modificationClient, InvoiceReviewService svc) {
-        this.contractmodificationClient = contract_modificationClient;
+    public InvoiceReviewController(ContractModificationClient contractModificationClient, InvoiceReviewService svc) {
+        this.contractmodificationClient = contractModificationClient;
         this.svc = svc;
     }
 
-    /** Fetch the contract_modification snapshot the invoice_review panel is reviewing. */
-    @GetMapping("/{invoice_reviewId}/contract_modification/{contract_modificationId}")
+    /** Fetch the contractModification snapshot the invoiceReview panel is reviewing. */
+    @GetMapping("/{invoiceReviewId}/contractModification/{contractModificationId}")
     public ResponseEntity<Map<String, Object>> getContractModificationForInvoiceReview(
-            @PathVariable String invoice_reviewId,
-            @PathVariable String contract_modificationId) {
+            @PathVariable String invoiceReviewId,
+            @PathVariable String contractModificationId) {
         // ⚠ Item 3 — no circuit breaker on this hop.
-        Map<String, Object> sol = contract_modificationClient.getContractModification(contract_modificationId);
+        Map<String, Object> sol = contractModificationClient.getContractModification(contractModificationId);
         return ResponseEntity.ok(sol);
     }
 
-    /** Create a new invoice_review panel. ⚠ Item 3 — no idempotency key. */
+    /** Create a new invoiceReview panel. ⚠ Item 3 — no idempotency key. */
     @PostMapping
     public ResponseEntity<InvoiceReview> create(@RequestBody Map<String, Object> req,
                                               @RequestHeader(value = "X-User", defaultValue = "anonymous") String actor) {
-        String contract_modificationId = String.valueOf(req.get("contract_modificationId"));
+        String contractModificationId = String.valueOf(req.get("contractModificationId"));
         String agencyId = (String) req.getOrDefault("agencyId", "GSA-FAS");
-        return ResponseEntity.ok(svc.create(contract_modificationId, agencyId, actor));
+        return ResponseEntity.ok(svc.create(contractModificationId, agencyId, actor));
     }
 
     @GetMapping("/{id}")

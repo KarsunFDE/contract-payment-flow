@@ -20,10 +20,10 @@ import { FIXTURE_QNA, FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock
   template: `
     <div class="page-header">
       <div>
-        <h2>Q&amp;A triage — {{ contract_modificationTitle() }}</h2>
+        <h2>Q&amp;A triage — {{ contractModificationTitle() }}</h2>
         <div class="subtitle">CS triages · AI-drafts answer · CO approves · published to all registered vendors</div>
       </div>
-      <a [routerLink]="['/contract_modifications', contract_modificationId, 'edit']"><button class="secondary">← Back to contract_modification</button></a>
+      <a [routerLink]="['/contractModifications', contractModificationId, 'edit']"><button class="secondary">← Back to contractModification</button></a>
     </div>
 
     <div class="hitl-banner">
@@ -66,20 +66,20 @@ import { FIXTURE_QNA, FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock
   `,
 })
 export class QnaTriageComponent implements OnInit {
-  contract_modificationId = '';
+  contractModificationId = '';
   qna: Qna[] = [];
 
   constructor(private route: ActivatedRoute) {}
 
   ngOnInit(): void {
-    this.contract_modificationId = this.route.snapshot.params['id'];
+    this.contractModificationId = this.route.snapshot.params['id'];
     this.qna = FIXTURE_QNA
-      .filter((q) => q.contract_modificationId === this.contract_modificationId)
+      .filter((q) => q.contractModificationId === this.contractModificationId)
       .map((q) => ({ ...q }));
   }
 
-  contract_modificationTitle(): string {
-    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contract_modificationId)?.title ?? this.contract_modificationId;
+  contractModificationTitle(): string {
+    return FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.contractModificationId)?.title ?? this.contractModificationId;
   }
 
   aiDraft(q: Qna): void {

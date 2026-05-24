@@ -6,9 +6,9 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 
 /**
- * Amendment to a published contract_modification. FAR 15.206.
+ * Amendment to a published contractModification. FAR 15.206.
  *
- * Amendments are numbered sequentially per contract_modification (0001, 0002, ...).
+ * Amendments are numbered sequentially per contractModification (0001, 0002, ...).
  * Vendors with proposals-in-progress must acknowledge before deadline.
  *
  * ⚠ Item 9 — {@code changeSummary} is raw HTML, fed into ai-orchestrator
@@ -21,7 +21,7 @@ public class Amendment {
     @Id
     private String id;
 
-    private String contract_modificationId;
+    private String contractModificationId;
     private String agencyId;
     private int number;
 
@@ -36,8 +36,8 @@ public class Amendment {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getContractModificationId() { return contract_modificationId; }
-    public void setContractModificationId(String contract_modificationId) { this.contractmodificationId = contract_modificationId; }
+    public String getContractModificationId() { return contractModificationId; }
+    public void setContractModificationId(String contractModificationId) { this.contractmodificationId = contractModificationId; }
     public String getAgencyId() { return agencyId; }
     public void setAgencyId(String agencyId) { this.agencyId = agencyId; }
     public int getNumber() { return number; }

@@ -4,8 +4,8 @@
 
 export interface Award {
   id: string;
-  invoice_reviewId: string;
-  contract_modificationId: string;
+  invoiceReviewId: string;
+  contractModificationId: string;
   winningVendorId: string;
   winningVendorName: string;
   contractNumber: string;

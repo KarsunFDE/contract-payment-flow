@@ -2,11 +2,11 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ContractModificationService } from '../../services/contract_modification.service';
-import { ContractModificationCreate } from '../../models/contract_modification';
+import { ContractModificationService } from '../../services/contract-modification.service';
+import { ContractModificationCreate } from '../../models/contract-modification';
 
 /**
- * New-contract_modification form.
+ * New-contractModification form.
  *
  * ⚠ DELIBERATE — Item 8 reinforcement / Item 9 reinforcement:
  *   - The `description` textarea has NO maxlength, NO required validator,
@@ -16,11 +16,11 @@ import { ContractModificationCreate } from '../../models/contract_modification';
  *     authorized agencies.
  */
 @Component({
-  selector: 'app-contract_modification-create',
+  selector: 'app-contractModification-create',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <h2>New contract_modification</h2>
+    <h2>New contractModification</h2>
     <form (ngSubmit)="onSubmit()" #form="ngForm">
       <p>
         <label>Title<br>
@@ -67,7 +67,7 @@ export class ContractModificationCreateComponent {
     this.svc.create(this.model).subscribe({
       next: () => {
         this.submitting = false;
-        this.router.navigate(['/contract_modifications']);
+        this.router.navigate(['/contractModifications']);
       },
       error: (err) => {
         this.error = `Create failed: ${err.message ?? err}`;

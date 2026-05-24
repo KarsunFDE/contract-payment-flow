@@ -2,8 +2,8 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ContractModificationService } from '../../services/contract_modification.service';
-import { ContractModification, ContractModificationCreate, ContractModificationSections } from '../../models/contract_modification';
+import { ContractModificationService } from '../../services/contract-modification.service';
+import { ContractModification, ContractModificationCreate, ContractModificationSections } from '../../models/contract-modification';
 
 /**
  * Multi-step ContractModification Drafting Wizard.
@@ -20,13 +20,13 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
  * sanitization on description field).
  */
 @Component({
-  selector: 'app-contract_modification-wizard',
+  selector: 'app-contractModification-wizard',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
     <div class="page-header">
       <div>
-        <h2>New contract_modification — drafting wizard</h2>
+        <h2>New contractModification — drafting wizard</h2>
         <div class="subtitle">FAR 15.204 Sections A–M · AI-assisted</div>
       </div>
     </div>
@@ -84,7 +84,7 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
       </div>
       <label><span class="label-text">Description (public-facing)</span>
         <textarea name="description" rows="4" [(ngModel)]="model.description"
-                  placeholder="Public contract_modification description (rendered raw — see Debt Item 9)"></textarea>
+                  placeholder="Public contractModification description (rendered raw — see Debt Item 9)"></textarea>
       </label>
     </div>
 
@@ -124,7 +124,7 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
     <!-- Step 5: Review -->
     <div class="card" *ngIf="step === 4">
       <h3>5. Review &amp; submit for internal review</h3>
-      <p>Submitting transitions the contract_modification to <code>INTERNAL_REVIEW</code>.
+      <p>Submitting transitions the contractModification to <code>INTERNAL_REVIEW</code>.
          CO sign-off required before publication.</p>
       <table>
         <tbody>
@@ -202,13 +202,13 @@ export class ContractModificationWizardComponent {
     this.svc.create(payload).subscribe({
       next: (s: ContractModification) => {
         this.submitting = false;
-        this.router.navigate(['/contract_modifications', s.id || 'sol-new', 'edit']);
+        this.router.navigate(['/contractModifications', s.id || 'sol-new', 'edit']);
       },
       error: (err) => {
         // Brownfield reality: create may fail; for instructor demo, still
         // route to the editor as if it succeeded.
         this.submitting = false;
-        this.router.navigate(['/contract_modifications']);
+        this.router.navigate(['/contractModifications']);
       },
     });
   }

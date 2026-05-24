@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
-import { ContractModification } from '../../models/contract_modification';
+import { ContractModification } from '../../models/contract-modification';
 
 /**
  * Public Opportunity Search (SAM.gov-style).

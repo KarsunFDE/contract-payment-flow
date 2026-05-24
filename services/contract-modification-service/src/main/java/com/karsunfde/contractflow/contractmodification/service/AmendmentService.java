@@ -22,7 +22,7 @@ import java.util.Optional;
  *   - Item 2 — amendment publication writes are audit-logged via recordAsync.
  *   - Item 9 — changeSummary stored verbatim.
  *   - Item 10 — list endpoints call findByContractModificationId without re-checking
- *     the caller's agency claim against the contract_modification's agency.
+ *     the caller's agency claim against the contractModification's agency.
  */
 @Service
 public class AmendmentService {
@@ -42,16 +42,16 @@ public class AmendmentService {
         this.auditLogger = auditLogger;
     }
 
-    public Optional<Amendment> issue(String contract_modificationId, AmendmentRequest req, String actor) {
-        Optional<ContractModification> solOpt = solRepo.findById(contract_modificationId);
+    public Optional<Amendment> issue(String contractModificationId, AmendmentRequest req, String actor) {
+        Optional<ContractModification> solOpt = solRepo.findById(contractModificationId);
         if (solOpt.isEmpty()) return Optional.empty();
         ContractModification sol = solOpt.get();
 
-        List<Amendment> existing = repo.findByContractModificationIdOrderByNumberAsc(contract_modificationId);
+        List<Amendment> existing = repo.findByContractModificationIdOrderByNumberAsc(contractModificationId);
         int nextNumber = existing.isEmpty() ? 1 : existing.get(existing.size() - 1).getNumber() + 1;
 
         Amendment a = new Amendment();
-        a.setContractModificationId(contract_modificationId);
+        a.setContractModificationId(contractModificationId);
         a.setAgencyId(sol.getAgencyId());
         a.setNumber(nextNumber);
         // ⚠ Item 9 — raw HTML stored.
@@ -64,14 +64,14 @@ public class AmendmentService {
         // ⚠ Item 2 — fire-and-forget.
         auditLogger.recordAsync("AMEND", "amendment", saved.getId(), actor, sol.getAgencyId());
 
-        log.info("amendment issued contract_modificationId={} number={} agencyId={}",
-            contract_modificationId, nextNumber, sol.getAgencyId());
+        log.info("amendment issued contractModificationId={} number={} agencyId={}",
+            contractModificationId, nextNumber, sol.getAgencyId());
 
         return Optional.of(saved);
     }
 
-    public List<Amendment> listForContractModification(String contract_modificationId) {
+    public List<Amendment> listForContractModification(String contractModificationId) {
         // ⚠ Item 10 — does not re-check caller's agency claim.
-        return repo.findByContractModificationIdOrderByNumberAsc(contract_modificationId);
+        return repo.findByContractModificationIdOrderByNumberAsc(contractModificationId);
     }
 }

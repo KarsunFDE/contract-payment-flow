@@ -14,8 +14,8 @@ public class Award {
     @Id
     private String id;
 
-    private String invoice_reviewId;
-    private String contract_modificationId;
+    private String invoiceReviewId;
+    private String contractModificationId;
     private String winningProposalId;
     private String agencyId;
     private String contractNumber;
@@ -29,10 +29,10 @@ public class Award {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getInvoiceReviewId() { return invoice_reviewId; }
-    public void setInvoiceReviewId(String invoice_reviewId) { this.invoicereviewId = invoice_reviewId; }
-    public String getContractModificationId() { return contract_modificationId; }
-    public void setContractModificationId(String contract_modificationId) { this.contractmodificationId = contract_modificationId; }
+    public String getInvoiceReviewId() { return invoiceReviewId; }
+    public void setInvoiceReviewId(String invoiceReviewId) { this.invoicereviewId = invoiceReviewId; }
+    public String getContractModificationId() { return contractModificationId; }
+    public void setContractModificationId(String contractModificationId) { this.contractmodificationId = contractModificationId; }
     public String getWinningProposalId() { return winningProposalId; }
     public void setWinningProposalId(String winningProposalId) { this.winningProposalId = winningProposalId; }
     public String getAgencyId() { return agencyId; }

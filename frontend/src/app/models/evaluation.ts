@@ -34,7 +34,7 @@ export type InvoiceReviewState =
 
 export interface InvoiceReview {
   id: string;
-  contract_modificationId: string;
+  contractModificationId: string;
   panelMembers: string[];          // evaluator user IDs
   factors: InvoiceReviewFactor[];
   state: InvoiceReviewState;

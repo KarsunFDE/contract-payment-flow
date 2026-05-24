@@ -41,13 +41,13 @@ public class ProposalService {
         this.auditLogger = auditLogger;
     }
 
-    public Optional<Proposal> submit(String contract_modificationId, ProposalSubmitRequest req, String actor) {
-        Optional<ContractModification> solOpt = solRepo.findById(contract_modificationId);
+    public Optional<Proposal> submit(String contractModificationId, ProposalSubmitRequest req, String actor) {
+        Optional<ContractModification> solOpt = solRepo.findById(contractModificationId);
         if (solOpt.isEmpty()) return Optional.empty();
         ContractModification sol = solOpt.get();
 
         Proposal p = new Proposal();
-        p.setContractModificationId(contract_modificationId);
+        p.setContractModificationId(contractModificationId);
         p.setAgencyId(sol.getAgencyId());
         p.setVendorId(req.getVendorId());
         p.setVolumes(req.getVolumes());
@@ -61,8 +61,8 @@ public class ProposalService {
         auditLogger.recordAsync("PROPOSAL_SUBMIT", "proposal", saved.getId(),
             actor, sol.getAgencyId());
 
-        log.info("proposal submitted contract_modificationId={} vendorId={}",
-            contract_modificationId, req.getVendorId());
+        log.info("proposal submitted contractModificationId={} vendorId={}",
+            contractModificationId, req.getVendorId());
         return Optional.of(saved);
     }
 
@@ -83,9 +83,9 @@ public class ProposalService {
         });
     }
 
-    public List<Proposal> listForContractModification(String contract_modificationId) {
+    public List<Proposal> listForContractModification(String contractModificationId) {
         // ⚠ Item 10 — should re-check the caller's agency.
-        return repo.findByContractModificationId(contract_modificationId);
+        return repo.findByContractModificationId(contractModificationId);
     }
 
     public List<Proposal> listForVendor(String vendorId) {

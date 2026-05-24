@@ -6,7 +6,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import java.util.List;
 
 public interface InvoiceReviewScoreRepository extends MongoRepository<InvoiceReviewScore, String> {
-    List<InvoiceReviewScore> findByInvoiceReviewId(String invoice_reviewId);
-    List<InvoiceReviewScore> findByInvoiceReviewIdAndProposalId(String invoice_reviewId, String proposalId);
+    List<InvoiceReviewScore> findByInvoiceReviewId(String invoiceReviewId);
+    List<InvoiceReviewScore> findByInvoiceReviewIdAndProposalId(String invoiceReviewId, String proposalId);
     List<InvoiceReviewScore> findByEvaluatorId(String evaluatorId);
 }

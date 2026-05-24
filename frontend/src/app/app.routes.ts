@@ -1,11 +1,11 @@
 import { Routes } from '@angular/router';
-import { ContractModificationListComponent } from './components/contract_modification-list/contract_modification-list.component';
-import { ContractModificationCreateComponent } from './components/contract_modification-create/contract_modification-create.component';
-import { InvoiceReviewPanelComponent } from './components/invoice_review-panel/invoice_review-panel.component';
+import { ContractModificationListComponent } from './components/contractModification-list/contractModification-list.component';
+import { ContractModificationCreateComponent } from './components/contractModification-create/contractModification-create.component';
+import { InvoiceReviewPanelComponent } from './components/invoiceReview-panel/invoiceReview-panel.component';
 import { OfficerDashboardComponent } from './components/officer-dashboard/officer-dashboard.component';
 import { ReportsHubComponent } from './components/reports-hub/reports-hub.component';
-import { ContractModificationWizardComponent } from './components/contract_modification-wizard/contract_modification-wizard.component';
-import { ContractModificationEditorComponent } from './components/contract_modification-editor/contract_modification-editor.component';
+import { ContractModificationWizardComponent } from './components/contractModification-wizard/contractModification-wizard.component';
+import { ContractModificationEditorComponent } from './components/contractModification-editor/contractModification-editor.component';
 import { AmendmentEditorComponent } from './components/amendment-editor/amendment-editor.component';
 import { QnaTriageComponent } from './components/qna-triage/qna-triage.component';
 import { ProposalIntakeComponent } from './components/proposal-intake/proposal-intake.component';
@@ -45,31 +45,31 @@ export const routes: Routes = [
   { path: 'reports/contract-spend', component: ReportsHubComponent },
 
   // — ContractModification lifecycle
-  // NOTE: /contract_modifications still routes to the LEGACY ContractModificationListComponent
+  // NOTE: /contractModifications still routes to the LEGACY ContractModificationListComponent
   // which hardcodes http://localhost:8081 (Item 8). PRESERVED as the W4 Tue
   // teaching artifact. New components route through environment.apiGatewayUrl.
-  { path: 'contract_modifications', component: ContractModificationListComponent },
+  { path: 'contractModifications', component: ContractModificationListComponent },
   {
-    path: 'contract_modifications/new',
+    path: 'contractModifications/new',
     component: ContractModificationWizardComponent,
     canMatch: [roleGuard('contracting_officer', 'contract_specialist')],
   },
   // Legacy single-page create form kept available under a sub-route so the
   // brownfield baseline is still demoable.
-  { path: 'contract_modifications/new-legacy', component: ContractModificationCreateComponent },
-  { path: 'contract_modifications/:id/edit', component: ContractModificationEditorComponent },
+  { path: 'contractModifications/new-legacy', component: ContractModificationCreateComponent },
+  { path: 'contractModifications/:id/edit', component: ContractModificationEditorComponent },
   {
-    path: 'contract_modifications/:id/amendments',
+    path: 'contractModifications/:id/amendments',
     component: AmendmentEditorComponent,
     canMatch: [roleGuard('contracting_officer', 'contract_specialist', 'program_manager')],
   },
   {
-    path: 'contract_modifications/:id/qa',
+    path: 'contractModifications/:id/qa',
     component: QnaTriageComponent,
     canMatch: [roleGuard('contracting_officer', 'contract_specialist')],
   },
   {
-    path: 'contract_modifications/:id/proposals',
+    path: 'contractModifications/:id/proposals',
     component: ProposalIntakeComponent,
     canMatch: [roleGuard('contracting_officer', 'contract_specialist')],
   },
@@ -96,15 +96,15 @@ export const routes: Routes = [
   },
 
   // — InvoiceReview + source selection
-  // Legacy invoice_review-panel kept under a sub-route for instructor comparison.
-  { path: 'invoice_reviews', component: InvoiceReviewPanelComponent },
+  // Legacy invoiceReview-panel kept under a sub-route for instructor comparison.
+  { path: 'invoiceReviews', component: InvoiceReviewPanelComponent },
   {
-    path: 'invoice_review/workspace',
+    path: 'invoiceReview/workspace',
     component: EvaluatorWorkspaceComponent,
     canMatch: [roleGuard('evaluator', 'contracting_officer', 'sys_admin')],
   },
   {
-    path: 'invoice_review/:solId/consensus',
+    path: 'invoiceReview/:solId/consensus',
     component: ConsensusSsddComponent,
     canMatch: [roleGuard('ssa', 'contracting_officer', 'sys_admin')],
   },

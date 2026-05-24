@@ -41,7 +41,7 @@ export class RoleSwitcherComponent {
       contract_specialist: '/dashboard',
       program_manager: '/dashboard',
       ssa: '/dashboard',
-      evaluator: '/invoice_review/workspace',
+      evaluator: '/invoiceReview/workspace',
       vendor: '/vendor/proposals',
       oig_reviewer: '/admin/findings',
       sys_admin: '/admin/users',

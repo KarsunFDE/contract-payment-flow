@@ -40,7 +40,7 @@ export const ROLE_PROFILES: RoleProfile[] = [
     role: 'contract_specialist',
     displayName: 'Miguel Ortiz (CS, GSA-FAS)',
     agencyId: 'GSA-FAS',
-    authorityNote: 'Draft contract_modifications; cannot sign award (FAR 1.603).',
+    authorityNote: 'Draft contractModifications; cannot sign award (FAR 1.603).',
   },
   {
     role: 'program_manager',

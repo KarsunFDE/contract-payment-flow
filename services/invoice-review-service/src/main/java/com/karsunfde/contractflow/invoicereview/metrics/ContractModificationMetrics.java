@@ -42,13 +42,13 @@ public class ContractModificationMetrics {
      * blows up. Datadog billing flags this as a cost-attack pattern.
      *
      * fixed_looks_like:
-     *   meterRegistry.counter("contract_modification.reviewed",
+     *   meterRegistry.counter("contractModification.reviewed",
      *       "tenant", tenant,
      *       "outcome", outcome  // bounded enum: APPROVED/REJECTED/PENDING
      *   ).increment();
      */
     public void recordReview(String userId, String tenant) {
-        meterRegistry.counter("contract_modification.reviewed",
+        meterRegistry.counter("contractModification.reviewed",
             "user_id", userId,        // ⚠ unbounded cardinality
             "tenant", tenant
         ).increment();
@@ -58,7 +58,7 @@ public class ContractModificationMetrics {
     public List<String> labelKeysApplied(String userId, String tenant) {
         recordReview(userId, tenant);
         List<String> keys = new ArrayList<>();
-        meterRegistry.find("contract_modification.reviewed").meters().forEach(m ->
+        meterRegistry.find("contractModification.reviewed").meters().forEach(m ->
             m.getId().getTags().stream().map(Tag::getKey).forEach(keys::add)
         );
         return keys;

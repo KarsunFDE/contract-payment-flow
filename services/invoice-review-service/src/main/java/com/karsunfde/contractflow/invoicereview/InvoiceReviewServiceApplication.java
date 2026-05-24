@@ -8,8 +8,8 @@ import org.springframework.web.client.RestTemplate;
 /**
  * contract-payment-flow — InvoiceReview Service.
  *
- * Coordinates invoice_review panels for contract_modifications. Calls contract-modification-service
- * synchronously to fetch contract_modification data (⚠ no circuit breaker — Item 3).
+ * Coordinates invoiceReview panels for contractModifications. Calls contract-modification-service
+ * synchronously to fetch contractModification data (⚠ no circuit breaker — Item 3).
  *
  * Brownfield-debt items in this service:
  *   - Item 3 — No Resilience4j circuit breaker on outbound calls

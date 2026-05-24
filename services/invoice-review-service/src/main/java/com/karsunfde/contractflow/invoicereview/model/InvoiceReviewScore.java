@@ -12,7 +12,7 @@ public class InvoiceReviewScore {
     @Id
     private String id;
 
-    private String invoice_reviewId;
+    private String invoiceReviewId;
     private String evaluatorId;
     private String proposalId;
     private String factorId;
@@ -24,8 +24,8 @@ public class InvoiceReviewScore {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getInvoiceReviewId() { return invoice_reviewId; }
-    public void setInvoiceReviewId(String invoice_reviewId) { this.invoicereviewId = invoice_reviewId; }
+    public String getInvoiceReviewId() { return invoiceReviewId; }
+    public void setInvoiceReviewId(String invoiceReviewId) { this.invoicereviewId = invoiceReviewId; }
     public String getEvaluatorId() { return evaluatorId; }
     public void setEvaluatorId(String evaluatorId) { this.evaluatorId = evaluatorId; }
     public String getProposalId() { return proposalId; }

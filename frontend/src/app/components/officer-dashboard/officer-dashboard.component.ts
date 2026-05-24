@@ -8,9 +8,9 @@ import { NotificationService } from '../../services/notification.service';
 /**
  * Officer Dashboard — role-aware landing for CO / CS / PM / SSA.
  *
- * Per feature-inventory-target.md: KPI tiles for open contract_modifications,
+ * Per feature-inventory-target.md: KPI tiles for open contractModifications,
  * proposals awaiting eval, amendments due, CPARs due in 30 days.
- * Touches Item 8 (hardcoded URL lives in the contract_modification-list
+ * Touches Item 8 (hardcoded URL lives in the contractModification-list
  * component referenced below) — keeping the localized teaching
  * artifact intact.
  */
@@ -25,14 +25,14 @@ import { NotificationService } from '../../services/notification.service';
         <div class="subtitle">{{ role.current.displayName }} · {{ role.current.authorityNote }}</div>
       </div>
       <div>
-        <a routerLink="/contract_modifications/new"><button>+ New contract_modification</button></a>
+        <a routerLink="/contractModifications/new"><button>+ New contractModification</button></a>
       </div>
     </div>
 
     <section class="kpi-grid">
       <div class="kpi-tile">
         <div class="kpi-value">{{ openContractModifications() }}</div>
-        <div class="kpi-label">Open contract_modifications</div>
+        <div class="kpi-label">Open contractModifications</div>
       </div>
       <div class="kpi-tile">
         <div class="kpi-value">{{ proposalsAwaitingEval() }}</div>
@@ -60,7 +60,7 @@ import { NotificationService } from '../../services/notification.service';
           <tbody>
             <tr *ngFor="let s of pipeline()">
               <td>
-                <a [routerLink]="['/contract_modifications', s.id, 'edit']">{{ s.title }}</a>
+                <a [routerLink]="['/contractModifications', s.id, 'edit']">{{ s.title }}</a>
                 <div style="font-size:0.75rem;color:var(--color-fg-muted)">{{ s.noticeType }} · NAICS {{ s.naics }}</div>
               </td>
               <td><span class="badge" [ngClass]="(s.status || '').toLowerCase()">{{ s.status }}</span></td>
@@ -84,14 +84,14 @@ import { NotificationService } from '../../services/notification.service';
     <div class="card" style="margin-top:1rem">
       <h3>Quick links</h3>
       <p>
-        <a routerLink="/contract_modifications">All contract_modifications</a> ·
+        <a routerLink="/contractModifications">All contractModifications</a> ·
         <a routerLink="/reports">All reports</a> ·
         <a routerLink="/vendors">Vendor directory</a> ·
         <a routerLink="/admin/audit">Audit log search</a>
       </p>
       <p style="font-size:0.8rem;color:var(--color-fg-muted)">
-        ⚠ Legacy contract_modification-list (Debt Item 8) is still wired at
-        <a routerLink="/contract_modifications">/contract_modifications</a> — preserved
+        ⚠ Legacy contractModification-list (Debt Item 8) is still wired at
+        <a routerLink="/contractModifications">/contractModifications</a> — preserved
         as the W4 Tue API-modernization teaching artifact.
       </p>
     </div>

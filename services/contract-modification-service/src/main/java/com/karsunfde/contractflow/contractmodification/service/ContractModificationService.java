@@ -53,10 +53,10 @@ public class ContractModificationService {
 
         // ⚠ Item 2 — fire-and-forget. Returns immediately, controller flushes
         //   response, audit may or may not land.
-        auditLogger.recordAsync("CREATE", "contract_modification", saved.getId(),
+        auditLogger.recordAsync("CREATE", "contractModification", saved.getId(),
             actor, saved.getAgencyId());
 
-        log.info("contract_modification created id={} agencyId={} correlationId=N/A",
+        log.info("contractModification created id={} agencyId={} correlationId=N/A",
             saved.getId(), saved.getAgencyId());
 
         return saved;
@@ -67,7 +67,7 @@ public class ContractModificationService {
     }
 
     /**
-     * ⚠ Item 10 — returns contract_modifications across ALL agencies. The
+     * ⚠ Item 10 — returns contractModifications across ALL agencies. The
      * {@code findByAgencyId} method exists on the repository but isn't
      * called from anywhere.
      */
@@ -83,7 +83,7 @@ public class ContractModificationService {
             if (req.getStatus() != null) s.setStatus(req.getStatus());
             s.setUpdatedAt(Instant.now());
             ContractModification saved = repo.save(s);
-            auditLogger.recordAsync("UPDATE", "contract_modification", saved.getId(),
+            auditLogger.recordAsync("UPDATE", "contractModification", saved.getId(),
                 actor, saved.getAgencyId());
             return saved;
         });
@@ -92,7 +92,7 @@ public class ContractModificationService {
     public boolean delete(String id, String actor) {
         return repo.findById(id).map(s -> {
             repo.deleteById(id);
-            auditLogger.recordAsync("DELETE", "contract_modification", id, actor, s.getAgencyId());
+            auditLogger.recordAsync("DELETE", "contractModification", id, actor, s.getAgencyId());
             return true;
         }).orElse(false);
     }
@@ -108,9 +108,9 @@ public class ContractModificationService {
             s.setUpdatedAt(Instant.now());
             ContractModification saved = repo.save(s);
             // ⚠ Item 2.
-            auditLogger.recordAsync("PUBLISH", "contract_modification", saved.getId(),
+            auditLogger.recordAsync("PUBLISH", "contractModification", saved.getId(),
                 actor, saved.getAgencyId());
-            log.info("contract_modification published id={} agencyId={}",
+            log.info("contractModification published id={} agencyId={}",
                 saved.getId(), saved.getAgencyId());
             return saved;
         });
@@ -122,7 +122,7 @@ public class ContractModificationService {
             s.setUpdatedAt(Instant.now());
             ContractModification saved = repo.save(s);
             // ⚠ Item 2.
-            auditLogger.recordAsync("CANCEL", "contract_modification", saved.getId(),
+            auditLogger.recordAsync("CANCEL", "contractModification", saved.getId(),
                 actor, saved.getAgencyId());
             return saved;
         });

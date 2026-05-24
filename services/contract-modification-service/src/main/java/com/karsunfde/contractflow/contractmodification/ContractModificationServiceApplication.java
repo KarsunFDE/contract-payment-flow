@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * contract-payment-flow — ContractModification Service.
  *
- * FAR/DFARS contract_modification lifecycle. CRUD over MongoDB; audit-log writes to
+ * FAR/DFARS contractModification lifecycle. CRUD over MongoDB; audit-log writes to
  * an audit collection (deliberately written *after* response — see Item 2).
  *
  * DELIBERATE BROWNFIELD DEBT in this service:

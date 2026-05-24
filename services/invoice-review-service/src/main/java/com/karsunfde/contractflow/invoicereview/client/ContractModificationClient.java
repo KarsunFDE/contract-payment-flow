@@ -33,8 +33,8 @@ public class ContractModificationClient {
 
     private final RestTemplate restTemplate;
 
-    @Value("${contract_modification.service.url:http://contract-modification-service:8081}")
-    private String contract_modificationServiceUrl;
+    @Value("${contractModification.service.url:http://contract-modification-service:8081}")
+    private String contractModificationServiceUrl;
 
     @Autowired
     public ContractModificationClient(RestTemplate restTemplate) {
@@ -42,14 +42,14 @@ public class ContractModificationClient {
     }
 
     /**
-     * Fetch a contract_modification by id from the upstream service.
+     * Fetch a contractModification by id from the upstream service.
      *
      * ⚠ No try/catch — a 5xx from upstream propagates as a 500 from us.
      * ⚠ No timeout — a 30-second hang upstream is a 30-second hang here.
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getContractModification(String id) {
-        String url = contract_modificationServiceUrl + "/api/contract-modifications/" + id;
+        String url = contractModificationServiceUrl + "/api/contract-modifications/" + id;
         // Item 6 — invoice-review-service uses traceId key.
         log.info("calling contract-modification-service url={} traceId=N/A", url);
         return restTemplate.getForObject(url, Map.class);

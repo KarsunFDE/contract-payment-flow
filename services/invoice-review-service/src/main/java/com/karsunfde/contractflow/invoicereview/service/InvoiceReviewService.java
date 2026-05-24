@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Workflow 4 — invoice_review → consensus → source selection → award (pre-award).
+ * Workflow 4 — invoiceReview → consensus → source selection → award (pre-award).
  *
  * Brownfield-debt items reinforced:
  *   - Item 3 — calls contract-modification-service for each proposal text via
@@ -33,31 +33,31 @@ public class InvoiceReviewService {
 
     private final InvoiceReviewRepository evalRepo;
     private final InvoiceReviewScoreRepository scoreRepo;
-    private final ContractModificationClient contract_modificationClient;
+    private final ContractModificationClient contractModificationClient;
     private final AiOrchestratorClient aiClient;
     private final EvalAuditLogger auditLogger;
 
     @Autowired
     public InvoiceReviewService(InvoiceReviewRepository evalRepo,
                              InvoiceReviewScoreRepository scoreRepo,
-                             ContractModificationClient contract_modificationClient,
+                             ContractModificationClient contractModificationClient,
                              AiOrchestratorClient aiClient,
                              EvalAuditLogger auditLogger) {
         this.evalRepo = evalRepo;
         this.scoreRepo = scoreRepo;
-        this.contractmodificationClient = contract_modificationClient;
+        this.contractmodificationClient = contractModificationClient;
         this.aiClient = aiClient;
         this.auditLogger = auditLogger;
     }
 
-    public InvoiceReview create(String contract_modificationId, String agencyId, String actor) {
+    public InvoiceReview create(String contractModificationId, String agencyId, String actor) {
         InvoiceReview e = new InvoiceReview();
-        e.setContractModificationId(contract_modificationId);
+        e.setContractModificationId(contractModificationId);
         e.setAgencyId(agencyId);
         e.setState("OPEN");
         e.setCreatedAt(Instant.now());
         InvoiceReview saved = evalRepo.save(e);
-        auditLogger.recordAsync("EVAL_CREATE", "invoice_review", saved.getId(), actor, agencyId);
+        auditLogger.recordAsync("EVAL_CREATE", "invoiceReview", saved.getId(), actor, agencyId);
         return saved;
     }
 
@@ -65,30 +65,30 @@ public class InvoiceReviewService {
         return evalRepo.findById(id);
     }
 
-    public Optional<InvoiceReview> assignPanel(String invoice_reviewId, List<String> panelMembers, String actor) {
-        return evalRepo.findById(invoice_reviewId).map(e -> {
+    public Optional<InvoiceReview> assignPanel(String invoiceReviewId, List<String> panelMembers, String actor) {
+        return evalRepo.findById(invoiceReviewId).map(e -> {
             e.setPanelMembers(panelMembers);
             e.setState("PANEL_ASSIGNED");
             InvoiceReview saved = evalRepo.save(e);
-            auditLogger.recordAsync("EVAL_PANEL_ASSIGN", "invoice_review", saved.getId(),
+            auditLogger.recordAsync("EVAL_PANEL_ASSIGN", "invoiceReview", saved.getId(),
                 actor, e.getAgencyId());
             return saved;
         });
     }
 
-    public Optional<InvoiceReviewScore> submitScore(String invoice_reviewId, InvoiceReviewScore in, String actor) {
-        Optional<InvoiceReview> eOpt = evalRepo.findById(invoice_reviewId);
+    public Optional<InvoiceReviewScore> submitScore(String invoiceReviewId, InvoiceReviewScore in, String actor) {
+        Optional<InvoiceReview> eOpt = evalRepo.findById(invoiceReviewId);
         if (eOpt.isEmpty()) return Optional.empty();
         InvoiceReview e = eOpt.get();
 
         // ⚠ Item 3 — fetches proposal context from contract-modification-service for
         // each score submission. No circuit breaker; under TEP-week load
         // this is the thread-exhaustion reproducer.
-        Map<String, Object> proposal = contract_modificationClient.getContractModification(in.getProposalId());
-        log.info("score submission invoice_reviewId={} proposalId={} proposal-loaded={}",
-            invoice_reviewId, in.getProposalId(), proposal != null);
+        Map<String, Object> proposal = contractModificationClient.getContractModification(in.getProposalId());
+        log.info("score submission invoiceReviewId={} proposalId={} proposal-loaded={}",
+            invoiceReviewId, in.getProposalId(), proposal != null);
 
-        in.setInvoiceReviewId(invoice_reviewId);
+        in.setInvoiceReviewId(invoiceReviewId);
         in.setScoredAt(Instant.now());
         InvoiceReviewScore saved = scoreRepo.save(in);
 
@@ -96,7 +96,7 @@ public class InvoiceReviewService {
         auditLogger.recordAsync("EVAL_SCORE", "score", saved.getId(),
             actor, e.getAgencyId());
 
-        // Promote invoice_review state on first score.
+        // Promote invoiceReview state on first score.
         if (!"SCORING".equals(e.getState())) {
             e.setState("SCORING");
             evalRepo.save(e);
@@ -105,8 +105,8 @@ public class InvoiceReviewService {
     }
 
     /** Aggregate panel consensus per proposal × factor. */
-    public Map<String, Map<String, Double>> consensus(String invoice_reviewId) {
-        List<InvoiceReviewScore> scores = scoreRepo.findByInvoiceReviewId(invoice_reviewId);
+    public Map<String, Map<String, Double>> consensus(String invoiceReviewId) {
+        List<InvoiceReviewScore> scores = scoreRepo.findByInvoiceReviewId(invoiceReviewId);
         Map<String, List<InvoiceReviewScore>> byProposal = scores.stream()
             .collect(Collectors.groupingBy(InvoiceReviewScore::getProposalId));
         Map<String, Map<String, Double>> out = new LinkedHashMap<>();
@@ -121,10 +121,10 @@ public class InvoiceReviewService {
     }
 
     /** Generate Source Selection Decision Document via ai-orchestrator. */
-    public Optional<Map<String, Object>> draftSsdd(String invoice_reviewId, String actor) {
-        return evalRepo.findById(invoice_reviewId).map(e -> {
+    public Optional<Map<String, Object>> draftSsdd(String invoiceReviewId, String actor) {
+        return evalRepo.findById(invoiceReviewId).map(e -> {
             // ⚠ Item 4 reinforcement — raw response returned; no schema check.
-            Map<String, Object> resp = aiClient.draftSsdd(invoice_reviewId);
+            Map<String, Object> resp = aiClient.draftSsdd(invoiceReviewId);
             e.setState("CONSENSUS");
             e.setConsensusAt(Instant.now());
             // Store doc id placeholder from response if present.
@@ -132,7 +132,7 @@ public class InvoiceReviewService {
                 e.setSsddDocId(resp.get("clause_id").toString());
             }
             evalRepo.save(e);
-            auditLogger.recordAsync("SSDD_DRAFT", "invoice_review", invoice_reviewId,
+            auditLogger.recordAsync("SSDD_DRAFT", "invoiceReview", invoiceReviewId,
                 actor, e.getAgencyId());
             return resp;
         });

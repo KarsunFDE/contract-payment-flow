@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ContractModification } from '../../models/contract_modification';
+import { ContractModification } from '../../models/contract-modification';
 import { Amendment } from '../../models/amendment';
 import { Qna } from '../../models/qna';
 import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_QNA } from '../../services/mock-fixtures';
@@ -20,9 +20,9 @@ import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_QNA } from 
   template: `
     <div class="page-header">
       <div>
-        <h2>{{ contract_modification?.title }}</h2>
+        <h2>{{ contractModification?.title }}</h2>
         <div class="subtitle">
-          {{ contract_modification?.noticeType }} · {{ contract_modification?.agencyId }} · NAICS {{ contract_modification?.naics }}
+          {{ contractModification?.noticeType }} · {{ contractModification?.agencyId }} · NAICS {{ contractModification?.naics }}
         </div>
       </div>
       <a routerLink="/public/opportunities"><button class="secondary">← All opportunities</button></a>
@@ -35,7 +35,7 @@ import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_QNA } from 
           <!-- ⚠ Item 9: description rendered raw via innerHTML in the production
                version. Here we use text interpolation but the backend stores
                raw HTML; cohort discovers the W4 surface in the network tab. -->
-          <p>{{ contract_modification?.description }}</p>
+          <p>{{ contractModification?.description }}</p>
         </div>
 
         <div class="card">
@@ -59,11 +59,11 @@ import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_QNA } from 
           <h3>Key dates</h3>
           <table>
             <tbody>
-              <tr><th>Posted</th><td>{{ contract_modification?.createdAt | date:'mediumDate' }}</td></tr>
-              <tr><th>Proposals due</th><td>{{ contract_modification?.proposalsDueAt ? (contract_modification?.proposalsDueAt | date:'medium') : '—' }}</td></tr>
-              <tr><th>Status</th><td><span class="badge" [ngClass]="(contract_modification?.status || '').toLowerCase()">{{ contract_modification?.status }}</span></td></tr>
-              <tr><th>Ceiling</th><td>\${{ (contract_modification?.ceilingValue || 0).toLocaleString() }}</td></tr>
-              <tr><th>Set-aside</th><td>{{ contract_modification?.setAside }}</td></tr>
+              <tr><th>Posted</th><td>{{ contractModification?.createdAt | date:'mediumDate' }}</td></tr>
+              <tr><th>Proposals due</th><td>{{ contractModification?.proposalsDueAt ? (contractModification?.proposalsDueAt | date:'medium') : '—' }}</td></tr>
+              <tr><th>Status</th><td><span class="badge" [ngClass]="(contractModification?.status || '').toLowerCase()">{{ contractModification?.status }}</span></td></tr>
+              <tr><th>Ceiling</th><td>\${{ (contractModification?.ceilingValue || 0).toLocaleString() }}</td></tr>
+              <tr><th>Set-aside</th><td>{{ contractModification?.setAside }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -97,7 +97,7 @@ import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_QNA } from 
 })
 export class OpportunityDetailComponent implements OnInit {
   id = '';
-  contract_modification: ContractModification | null = null;
+  contractModification: ContractModification | null = null;
   amendments: Amendment[] = [];
   qna: Qna[] = [];
 
@@ -105,9 +105,9 @@ export class OpportunityDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.id = this.route.snapshot.params['id'];
-    this.contract_modification = FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.id) ?? FIXTURE_CONTRACT_MODIFICATIONS[0];
-    this.amendments = FIXTURE_AMENDMENTS.filter((a) => a.contract_modificationId === this.id);
-    this.qna = FIXTURE_QNA.filter((q) => q.contract_modificationId === this.id);
+    this.contractModification = FIXTURE_CONTRACT_MODIFICATIONS.find((s) => s.id === this.id) ?? FIXTURE_CONTRACT_MODIFICATIONS[0];
+    this.amendments = FIXTURE_AMENDMENTS.filter((a) => a.contractModificationId === this.id);
+    this.qna = FIXTURE_QNA.filter((q) => q.contractModificationId === this.id);
   }
 
   publicQna(): Qna[] {
@@ -115,7 +115,7 @@ export class OpportunityDetailComponent implements OnInit {
   }
 
   sectionC(): string {
-    return `C.1 SCOPE. ${this.contract_modification?.description || ''}\n\nC.2 BACKGROUND. Karsun-aligned federal acquisition modernization scope.\n\nC.3 TASKS.\nTask 1: Service Operations\nTask 2: Continuous Monitoring\nTask 3: Incident Response`;
+    return `C.1 SCOPE. ${this.contractModification?.description || ''}\n\nC.2 BACKGROUND. Karsun-aligned federal acquisition modernization scope.\n\nC.3 TASKS.\nTask 1: Service Operations\nTask 2: Continuous Monitoring\nTask 3: Incident Response`;
   }
 
   sectionL(): string {

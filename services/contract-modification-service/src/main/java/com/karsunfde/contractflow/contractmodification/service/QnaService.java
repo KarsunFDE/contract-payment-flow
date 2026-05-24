@@ -41,13 +41,13 @@ public class QnaService {
         this.auditLogger = auditLogger;
     }
 
-    public Optional<Qna> submit(String contract_modificationId, QnaRequest req, String actor) {
-        Optional<ContractModification> solOpt = solRepo.findById(contract_modificationId);
+    public Optional<Qna> submit(String contractModificationId, QnaRequest req, String actor) {
+        Optional<ContractModification> solOpt = solRepo.findById(contractModificationId);
         if (solOpt.isEmpty()) return Optional.empty();
         ContractModification sol = solOpt.get();
 
         Qna q = new Qna();
-        q.setContractModificationId(contract_modificationId);
+        q.setContractModificationId(contractModificationId);
         q.setAgencyId(sol.getAgencyId());
         // ⚠ Item 9 — raw HTML accepted.
         q.setQuestion(req.getQuestion());
@@ -59,7 +59,7 @@ public class QnaService {
         // ⚠ Item 2 — fire-and-forget.
         auditLogger.recordAsync("QNA_SUBMIT", "qna", saved.getId(), actor, sol.getAgencyId());
 
-        log.info("qna submitted contract_modificationId={} vendorId={}", contract_modificationId, req.getVendorId());
+        log.info("qna submitted contractModificationId={} vendorId={}", contractModificationId, req.getVendorId());
         return Optional.of(saved);
     }
 
@@ -76,8 +76,8 @@ public class QnaService {
         });
     }
 
-    public List<Qna> listForContractModification(String contract_modificationId) {
+    public List<Qna> listForContractModification(String contractModificationId) {
         // ⚠ Item 10 — does not re-check caller agency.
-        return repo.findByContractModificationId(contract_modificationId);
+        return repo.findByContractModificationId(contractModificationId);
     }
 }

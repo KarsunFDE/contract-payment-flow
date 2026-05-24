@@ -1,13 +1,13 @@
 /**
- * Amendment to a published contract_modification (FAR 15.206).
+ * Amendment to a published contractModification (FAR 15.206).
  *
- * Numbered sequentially per contract_modification. Issuance is restricted to CO.
+ * Numbered sequentially per contractModification. Issuance is restricted to CO.
  * Vendors with proposals-in-progress must acknowledge before deadline;
  * acknowledgement state is tracked here.
  */
 export interface Amendment {
   id: string;
-  contract_modificationId: string;
+  contractModificationId: string;
   number: number;                  // 0001, 0002, ...
   changeSummary: string;
   effectiveAt: string;             // ISO
