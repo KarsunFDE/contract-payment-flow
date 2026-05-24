@@ -94,7 +94,7 @@ parity is assessment-critical.
 
 ## Item 8 — Frontend hardcodes service URL (bypasses gateway)
 
-- **Where:** `frontend/src/app/components/contract_modification-list/contract_modification-list.component.ts`
+- **Where:** `frontend/src/app/components/contract-modification-list/contract-modification-list.component.ts`
   - `private apiUrl = 'http://localhost:8081/api/contract-modifications';`
 - **How found:** Searching for `http://localhost` in `frontend/src/` returns the hardcode; comparing with the rest of the app (which uses `environment.apiGatewayUrl`).
 - **Surfaces in:** W4 Tue API modernization patterns.
