@@ -1,16 +1,30 @@
-# `contract-payment-flow` — Federal Acquisitions Training Project
+# `contract-payment-flow` — Pair 2 Brownfield (Cohort #1)
 
-> **Karsun-FDE 6-week intensive — Cohort #1 brownfield training repo.**
+> **Karsun-FDE 6-week intensive — Pair 2 pair-project repo.**
+> Derived from [`acquire-gov`](https://github.com/KarsunFDE/acquire-gov) on
+> W1 Wed PM 2026-05-27 via the `pair-brownfield-generator` skill.
+>
+> **Aspect:** `post-award-contract-administration` (FAR Part 42 / 43 / 32).
+> See [`domain-mapping.md`](./domain-mapping.md) for the full rename trail
+> and [`docs/adrs/0001-post-award-contract-administration-commitment.md`](./docs/adrs/0001-post-award-contract-administration-commitment.md)
+> for the aspect-commitment ADR.
 >
 > Mirrors how Karsun's federal-acquisitions engagements actually deploy
 > (Angular SPA → Spring Boot microservices → Python/FastAPI AI orchestration
 > on AWS Bedrock + MongoDB Atlas + PostgreSQL) and is **deliberately imperfect**
-> so the cohort has real brownfield debt to inventory (W1 Tue) and modernise
-> (W4 Mon–Thu).
+> — 12 baseline debt items (shared with `acquire-gov` + the other pairs) plus
+> 5 Pair-2-unique debt items per D-059. See [`docs/brownfield-debt.md`](./docs/brownfield-debt.md)
+> (baseline) and [`docs/pair-unique-debt.md`](./docs/pair-unique-debt.md) (your pair's 5).
+>
+> Aspirational stretch work in [`BACKLOG.md`](./BACKLOG.md) — opt-in, not assessed.
 
-## 🔗 Linked projects (Cohort #1)
+## 🔗 Sibling pair-projects (Cohort #1)
 
-This repo is the **template + training-project** for all 4 brownfields in the programme. The 3 pair-projects below are generated from this template W1 Wed PM via the `pair-brownfield-generator` skill, inheriting all 12 debt items + the architecture but reshaping the domain to each pair's federal-acquisitions aspect.
+All three pair-projects below are generated from `acquire-gov` via the
+`pair-brownfield-generator` skill, inheriting all 12 baseline debt items + the
+architecture but reshaping the domain to each pair's federal-acquisitions
+aspect. Each pair also gets 5 distinct pair-unique debt items (D-059) — see
+your `docs/pair-unique-debt.md`.
 
 | Repo | Anchor (real federal system) | Domain focus |
 |------|------------------------------|--------------|
