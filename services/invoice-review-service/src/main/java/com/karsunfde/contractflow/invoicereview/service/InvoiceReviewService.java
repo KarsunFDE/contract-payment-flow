@@ -45,7 +45,7 @@ public class InvoiceReviewService {
                              EvalAuditLogger auditLogger) {
         this.evalRepo = evalRepo;
         this.scoreRepo = scoreRepo;
-        this.contractmodificationClient = contractModificationClient;
+        this.contractModificationClient = contractModificationClient;
         this.aiClient = aiClient;
         this.auditLogger = auditLogger;
     }

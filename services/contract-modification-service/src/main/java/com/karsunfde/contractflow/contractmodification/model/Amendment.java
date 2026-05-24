@@ -37,7 +37,7 @@ public class Amendment {
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getContractModificationId() { return contractModificationId; }
-    public void setContractModificationId(String contractModificationId) { this.contractmodificationId = contractModificationId; }
+    public void setContractModificationId(String contractModificationId) { this.contractModificationId = contractModificationId; }
     public String getAgencyId() { return agencyId; }
     public void setAgencyId(String agencyId) { this.agencyId = agencyId; }
     public int getNumber() { return number; }

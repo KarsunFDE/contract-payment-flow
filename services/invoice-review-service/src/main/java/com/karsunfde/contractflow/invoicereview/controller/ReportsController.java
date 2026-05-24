@@ -49,7 +49,7 @@ public class ReportsController {
         this.modRepo = modRepo;
         this.cparRepo = cparRepo;
         this.findingRepo = findingRepo;
-        this.contractmodificationClient = contractModificationClient;
+        this.contractModificationClient = contractModificationClient;
     }
 
     /** SAM.gov-style pipeline by stage. */

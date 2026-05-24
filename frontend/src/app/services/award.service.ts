@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Award, ContractModification, Deliverable, Cpar } from '../models/award';
+import { Award, PostAwardModification, Deliverable, Cpar } from '../models/award';
 
 @Injectable({ providedIn: 'root' })
 export class AwardService {
@@ -21,17 +21,17 @@ export class AwardService {
 
   // — Contract administration (FAR Part 42)
 
-  contractModifications(contractId: string): Observable<ContractModification[]> {
-    return this.http.get<ContractModification[]>(
+  contractModifications(contractId: string): Observable<PostAwardModification[]> {
+    return this.http.get<PostAwardModification[]>(
       `${environment.apiGatewayUrl}/api/contracts/${contractId}/modifications`,
     );
   }
 
   issueModification(
     contractId: string,
-    mod: Partial<ContractModification>,
-  ): Observable<ContractModification> {
-    return this.http.post<ContractModification>(
+    mod: Partial<PostAwardModification>,
+  ): Observable<PostAwardModification> {
+    return this.http.post<PostAwardModification>(
       `${environment.apiGatewayUrl}/api/contracts/${contractId}/modifications`,
       mod,
     );

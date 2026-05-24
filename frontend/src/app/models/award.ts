@@ -15,7 +15,7 @@ export interface Award {
   debriefDeadline: string;
 }
 
-export interface ContractModification {
+export interface PostAwardModification {
   id: string;
   contractId: string;
   modNumber: string;               // e.g., P00001, A00001

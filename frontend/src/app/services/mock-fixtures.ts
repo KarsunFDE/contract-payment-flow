@@ -19,7 +19,7 @@ import { Amendment } from '../models/amendment';
 import { Qna } from '../models/qna';
 import { Proposal } from '../models/proposal';
 import { InvoiceReview, InvoiceReviewScore } from '../models/invoice-review';
-import { Award, ContractModification, Deliverable, Cpar } from '../models/award';
+import { Award, PostAwardModification, Deliverable, Cpar } from '../models/award';
 import { Vendor } from '../models/vendor';
 import { AuditEvent } from '../models/audit';
 import { Finding } from '../models/finding';
@@ -217,7 +217,7 @@ export const FIXTURE_AWARD: Award = {
   debriefDeadline: new Date(Date.now() - 1000 * 60 * 60 * 24 * 25).toISOString(),
 };
 
-export const FIXTURE_MODIFICATIONS: ContractModification[] = [
+export const FIXTURE_MODIFICATIONS: PostAwardModification[] = [
   { id: 'mod-001', contractId: 'ctr-0001', modNumber: 'P00001', type: 'bilateral', changeDescription: 'Option year 1 exercise; ceiling delta +$18M.', effectiveAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 200).toISOString(), signedBy: 'co-reeves' },
   { id: 'mod-002', contractId: 'ctr-0001', modNumber: 'A00001', type: 'unilateral', changeDescription: 'Administrative — updated POC email after PM transition.', effectiveAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(), signedBy: 'co-reeves' },
 ];

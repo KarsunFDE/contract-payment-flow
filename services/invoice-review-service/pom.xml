@@ -38,6 +38,11 @@
          resilience4j-spring-boot2 is NOT a dependency (SB 2.7 line).
          Cohort adds in W4 Thu, then migrates to resilience4j-spring-boot3
          as part of the SB 2.7 -> 3.0 hop. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

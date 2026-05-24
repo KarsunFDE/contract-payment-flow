@@ -25,7 +25,7 @@ public class InvoiceReviewScore {
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getInvoiceReviewId() { return invoiceReviewId; }
-    public void setInvoiceReviewId(String invoiceReviewId) { this.invoicereviewId = invoiceReviewId; }
+    public void setInvoiceReviewId(String invoiceReviewId) { this.invoiceReviewId = invoiceReviewId; }
     public String getEvaluatorId() { return evaluatorId; }
     public void setEvaluatorId(String evaluatorId) { this.evaluatorId = evaluatorId; }
     public String getProposalId() { return proposalId; }

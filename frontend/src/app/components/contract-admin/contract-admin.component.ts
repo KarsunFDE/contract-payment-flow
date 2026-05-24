@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FIXTURE_MODIFICATIONS, FIXTURE_DELIVERABLES, FIXTURE_AWARD } from '../../services/mock-fixtures';
-import { ContractModification, Deliverable } from '../../models/award';
+import { PostAwardModification, Deliverable } from '../../models/award';
 
 /**
  * Contract Administration (FAR Part 42).
@@ -87,10 +87,10 @@ import { ContractModification, Deliverable } from '../../models/award';
 export class ContractAdminComponent implements OnInit {
   contractId = 'ctr-0001';
   award = FIXTURE_AWARD;
-  mods: ContractModification[] = [];
+  mods: PostAwardModification[] = [];
   deliverables: Deliverable[] = [];
 
-  newMod: Partial<ContractModification> = { type: 'bilateral', modNumber: '', changeDescription: '' };
+  newMod: Partial<PostAwardModification> = { type: 'bilateral', modNumber: '', changeDescription: '' };
 
   constructor(private route: ActivatedRoute) {}
 
@@ -101,7 +101,7 @@ export class ContractAdminComponent implements OnInit {
   }
 
   issueMod(): void {
-    const m: ContractModification = {
+    const m: PostAwardModification = {
       id: `mod-${Date.now()}`,
       contractId: this.contractId,
       modNumber: this.newMod.modNumber!,

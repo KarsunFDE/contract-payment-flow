@@ -1,11 +1,11 @@
 import { Routes } from '@angular/router';
-import { ContractModificationListComponent } from './components/contractModification-list/contractModification-list.component';
-import { ContractModificationCreateComponent } from './components/contractModification-create/contractModification-create.component';
-import { InvoiceReviewPanelComponent } from './components/invoiceReview-panel/invoiceReview-panel.component';
+import { ContractModificationListComponent } from './components/contract-modification-list/contract-modification-list.component';
+import { ContractModificationCreateComponent } from './components/contract-modification-create/contract-modification-create.component';
+import { InvoiceReviewPanelComponent } from './components/invoice-review-panel/invoice-review-panel.component';
 import { OfficerDashboardComponent } from './components/officer-dashboard/officer-dashboard.component';
 import { ReportsHubComponent } from './components/reports-hub/reports-hub.component';
-import { ContractModificationWizardComponent } from './components/contractModification-wizard/contractModification-wizard.component';
-import { ContractModificationEditorComponent } from './components/contractModification-editor/contractModification-editor.component';
+import { ContractModificationWizardComponent } from './components/contract-modification-wizard/contract-modification-wizard.component';
+import { ContractModificationEditorComponent } from './components/contract-modification-editor/contract-modification-editor.component';
 import { AmendmentEditorComponent } from './components/amendment-editor/amendment-editor.component';
 import { QnaTriageComponent } from './components/qna-triage/qna-triage.component';
 import { ProposalIntakeComponent } from './components/proposal-intake/proposal-intake.component';
@@ -96,7 +96,7 @@ export const routes: Routes = [
   },
 
   // — InvoiceReview + source selection
-  // Legacy invoiceReview-panel kept under a sub-route for instructor comparison.
+  // Legacy invoice-review-panel kept under a sub-route for instructor comparison.
   { path: 'invoiceReviews', component: InvoiceReviewPanelComponent },
   {
     path: 'invoiceReview/workspace',

@@ -36,7 +36,7 @@ public class InvoiceReviewController {
 
     @Autowired
     public InvoiceReviewController(ContractModificationClient contractModificationClient, InvoiceReviewService svc) {
-        this.contractmodificationClient = contractModificationClient;
+        this.contractModificationClient = contractModificationClient;
         this.svc = svc;
     }
 
