@@ -1,0 +1,35 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: invoice-review-service
+  data:
+    mongodb:
+      uri: ${MONGO_URL:mongodb://app:app_dev_password@localhost:27017}
+      database: ${MONGO_DB:contract_payment_flow}
+      auto-index-creation: true
+
+contract_modification:
+  service:
+    url: ${CONTRACT_MODIFICATION_SERVICE_URL:http://contract-modification-service:8081}
+
+ai:
+  orchestrator:
+    url: ${AI_ORCHESTRATOR_URL:http://ai-orchestrator:8000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  # ⚠ DELIBERATE — Item 6: invoice-review-service uses traceId.
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [traceId=%X{traceId:-}] %logger{36} - %msg%n"
+  level:
+    com.karsunfde.contractflow: INFO
