@@ -44,7 +44,7 @@ your `docs/pair-unique-debt.md`.
 | Repo | What |
 |------|------|
 | [`content`](https://github.com/KarsunFDE/content) | Cohort-facing async content (pre-session, war-room, scenarios) — public |
-| [`domain-knowledge`](https://github.com/KarsunFDE/domain-knowledge) | Federal-acquisitions references (FAR/DFARS, OIG/OMB) — public |
+| [`domain-knowledge`](https://github.com/KarsunFDE/domain-knowledge) | Federal-acquisitions corpus — 11 `/web-research`-sourced briefs. Pair-anchor: [`federal-post-award-admin`](https://github.com/KarsunFDE/domain-knowledge/blob/main/federal-post-award-admin.md) (FAR Parts 32/42/43, DFARS 232/242, WAWF/PIEE, DCAA). Public. |
 | `assessment-ec` | Checkpoint exams + audit rubrics — **private, not associate-visible** |
 | `training-resources` | Instructor-facing daily walkthroughs + EOD task specs — **private, not associate-visible** |
 
