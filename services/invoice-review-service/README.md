@@ -1,6 +1,6 @@
 # invoice-review-service
 
-Spring Boot 3.2. InvoiceReview panel coordination. Calls contract-modification-service over sync REST.
+Spring Boot 2.7.18. InvoiceReview panel coordination. Calls contract-modification-service over sync REST. Java 11 baseline. W4 modernizes to SB 3.x + Java 17.
 
 ## Endpoints
 
