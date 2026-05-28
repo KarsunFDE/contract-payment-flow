@@ -18,65 +18,79 @@ import { ContractModification, ContractModificationState } from '../models/contr
 import { Amendment } from '../models/amendment';
 import { Qna } from '../models/qna';
 import { Proposal } from '../models/proposal';
-import { InvoiceReview, InvoiceReviewScore } from '../models/invoice-review';
+import { InvoiceReview, InvoiceReviewScore, InvoiceReviewFactor } from '../models/invoice-review';
 import { Award, PostAwardModification, Deliverable, Cpar } from '../models/award';
 import { Vendor } from '../models/vendor';
 import { AuditEvent } from '../models/audit';
 import { Finding } from '../models/finding';
 
+/**
+ * Post-award SF-30 contract modifications (FAR Part 43).
+ * Realism citations (retrieved 2026-05-28 via /web-research):
+ *   - SF-30 mod-number convention: P-series = supplemental, A-series = admin
+ *   - GSA-FAS contract numbers (`GS-35F-…`), DLA `SPE…` prefix
+ */
 export const FIXTURE_CONTRACT_MODIFICATIONS: ContractModification[] = [
   {
-    id: 'sol-0142',
+    id: 'mod-0142',
     agencyId: 'GSA-FAS',
-    title: 'Cloud Managed Services BPA — Civilian Agencies',
-    description: 'Enterprise cloud managed services across AWS GovCloud + Azure Government for 11 civilian agencies under the GSA-FAS umbrella.',
-    status: 'PUBLISHED' as ContractModificationState,
-    naics: '541512',
-    setAside: 'FULL_AND_OPEN',
-    contractType: 'BPA',
-    ceilingValue: 110_000_000,
-    noticeType: 'RFP',
-    proposalsDueAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString(),
+    title: 'P00003 — Exercise Option Year 2 + add funds',
+    description: 'Bilateral supplemental agreement: exercise OY2 and add incremental funding; period of performance extended 12 months.',
+    status: 'PERFORMANCE_MONITORING' as ContractModificationState,
+    contractNumber: 'GS-35F-0001V',
+    modificationNumber: 'P00003',
+    modType: 'bilateral_supplemental',
+    farAuthority: 'FAR 43.103 / FAR 52.243-1',
+    fundingDelta: 18_000_000,
+    contractorConsentRequired: true,
+    popStart: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    popEnd: new Date(Date.now() + 1000 * 60 * 60 * 24 * 395).toISOString(),
+    effectiveDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
+  },
+  {
+    id: 'mod-0203',
+    agencyId: 'GSA-FAS',
+    title: 'A00002 — Administrative: update CO point-of-contact',
+    description: 'Unilateral administrative change: revise Block 7 CO point-of-contact email after PM transition. No cost/scope impact.',
+    status: 'PERFORMANCE_MONITORING' as ContractModificationState,
+    contractNumber: 'GS-35F-0001V',
+    modificationNumber: 'A00002',
+    modType: 'unilateral_admin',
+    farAuthority: 'FAR 43.101 (administrative change)',
+    fundingDelta: 0,
+    contractorConsentRequired: false,
+    effectiveDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 21).toISOString(),
   },
   {
-    id: 'sol-0203',
-    agencyId: 'GSA-FAS',
-    title: 'Acquisition Modernization Software Engineering',
-    description: 'AI-assisted modernization engineering team to support CAMEO/COMET portfolio.',
-    status: 'PUBLISHED' as ContractModificationState,
-    naics: '541511',
-    setAside: '8A',
-    contractType: 'T_AND_M',
-    ceilingValue: 25_000_000,
-    noticeType: 'RFP',
-    proposalsDueAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(),
+    id: 'mod-0301',
+    agencyId: 'DLA',
+    title: 'P00001 — Add CLIN 0005 (engineering change order)',
+    description: 'Unilateral change order under the Changes clause: add CLIN 0005 for an engineering change; equitable adjustment to follow.',
+    status: 'MODIFICATION_REQUEST' as ContractModificationState,
+    contractNumber: 'SPE7M5-24-D-0042',
+    modificationNumber: 'P00001',
+    modType: 'unilateral_change_order',
+    farAuthority: 'FAR 52.243-1 (Changes — Fixed Price)',
+    fundingDelta: 1_500_000,
+    contractorConsentRequired: false,
+    effectiveDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
   },
   {
-    id: 'sol-0301',
+    id: 'mod-0418',
     agencyId: 'GSA-FAS',
-    title: 'Sources Sought — Zero-Trust Architecture Assessment',
-    description: 'RFI seeking industry input on zero-trust assessments for FedRAMP Moderate enclaves.',
-    status: 'PUBLISHED' as ContractModificationState,
-    naics: '541519',
-    setAside: 'SDVOSB',
-    contractType: 'FFP',
-    ceilingValue: 1_500_000,
-    noticeType: 'SOURCES_SOUGHT',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9).toISOString(),
-  },
-  {
-    id: 'sol-0418',
-    agencyId: 'GSA-FAS',
-    title: 'Draft — Multi-Cloud Observability Stack Procurement',
-    description: 'Pre-publication draft. Internal review pending.',
-    status: 'INTERNAL_REVIEW' as ContractModificationState,
-    naics: '541519',
-    setAside: 'FULL_AND_OPEN',
-    contractType: 'IDIQ',
-    ceilingValue: 50_000_000,
-    noticeType: 'RFP',
+    title: 'A00003 — Deobligate residual FY25 funds',
+    description: 'Draft unilateral admin modification to deobligate residual FY25 funds at closeout. Pending CO review.',
+    status: 'MODIFICATION_REQUEST' as ContractModificationState,
+    contractNumber: 'GS-35F-0001V',
+    modificationNumber: 'A00003',
+    modType: 'unilateral_admin',
+    farAuthority: 'FAR 43.101 (administrative change)',
+    fundingDelta: -640_000,
+    contractorConsentRequired: false,
+    effectiveDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
   },
 ];
@@ -184,9 +198,102 @@ export const FIXTURE_PROPOSALS: Proposal[] = [
   },
 ];
 
-export const FIXTURE_INVOICE_REVIEW: InvoiceReview = {
+/**
+ * Post-award invoice / payment reviews (FAR Part 32, WAWF).
+ * FIXTURE_INVOICE_REVIEW is the primary single record several pages fall back
+ * to; FIXTURE_INVOICES is the queue.
+ */
+export const FIXTURE_INVOICES: InvoiceReview[] = [
+  {
+    id: 'inv-0412',
+    contractNumber: 'GS-35F-0001V',
+    invoiceNumber: 'INV-2026-0412',
+    invoiceDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString(),
+    receivingReportRef: 'WAWF-RR-88213',
+    lineItems: [
+      { clin: '0001', description: 'Managed cloud ops — April', quantity: 1, unitPrice: 420_000, amount: 420_000 },
+      { clin: '0002', description: 'Continuous monitoring — April', quantity: 1, unitPrice: 62_350, amount: 62_350 },
+    ],
+    invoiceAmount: 482_350,
+    properInvoiceChecks: {
+      contractorNameAddress: true, invoiceDate: true, contractNumber: true,
+      descriptionOfSuppliesServices: true, quantitiesUnitPrices: true,
+      shippingPaymentTerms: true, payeeNameAddress: true,
+    },
+    paymentStatus: 'certified',
+    promptPayDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 26).toISOString(),
+    returnReason: null,
+    dcaaFlags: [],
+    state: 'CERTIFICATION',
+  },
+  {
+    id: 'inv-0415',
+    contractNumber: 'GS-35F-0001V',
+    invoiceNumber: 'INV-2026-0415',
+    invoiceDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
+    receivingReportRef: null,
+    lineItems: [
+      { clin: '0002', description: 'Surge support — partial', quantity: 1, unitPrice: 91_200, amount: 91_200 },
+    ],
+    invoiceAmount: 91_200,
+    properInvoiceChecks: {
+      contractorNameAddress: true, invoiceDate: true, contractNumber: true,
+      descriptionOfSuppliesServices: true, quantitiesUnitPrices: false,
+      shippingPaymentTerms: true, payeeNameAddress: true,
+    },
+    paymentStatus: 'improper_returned',
+    promptPayDueDate: null,
+    returnReason: 'Missing unit prices for CLIN 0002 (FAR 32.905(b)); receiving report unmatched. Return within 7 days.',
+    dcaaFlags: ['unit_price_variance'],
+    state: 'RETURNED',
+  },
+  {
+    id: 'inv-0420',
+    contractNumber: 'SPE7M5-24-D-0042',
+    invoiceNumber: 'DLA-INV-7741',
+    invoiceDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+    receivingReportRef: 'WAWF-RR-90551',
+    lineItems: [
+      { clin: '0003', description: 'Depot spares lot 12', quantity: 240, unitPrice: 318.75, amount: 76_500 },
+    ],
+    invoiceAmount: 76_500,
+    properInvoiceChecks: {
+      contractorNameAddress: true, invoiceDate: true, contractNumber: true,
+      descriptionOfSuppliesServices: true, quantitiesUnitPrices: true,
+      shippingPaymentTerms: true, payeeNameAddress: true,
+    },
+    paymentStatus: 'received',
+    promptPayDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 28).toISOString(),
+    returnReason: null,
+    dcaaFlags: ['cost_type_audit_pending'],
+    state: 'RECEIVING_REPORT_MATCH',
+  },
+];
+
+export const FIXTURE_INVOICE_REVIEW: InvoiceReview = FIXTURE_INVOICES[0];
+
+/** WAWF receiving reports referenced by the invoice queue. */
+export const FIXTURE_RECEIVING_REPORTS = [
+  { ref: 'WAWF-RR-88213', contractNumber: 'GS-35F-0001V', acceptedBy: 'cor-shah', acceptedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(), inspectionResult: 'ACCEPTED' },
+  { ref: 'WAWF-RR-90551', contractNumber: 'SPE7M5-24-D-0042', acceptedBy: 'cor-vega', acceptedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), inspectionResult: 'ACCEPTED' },
+];
+
+/**
+ * @deprecated Legacy pre-award TEP panel — retained for the consensus-ssdd /
+ * evaluator-workspace components, which the W3 cohort may repurpose into a
+ * multi-agent invoice-review surface. NOT the post-award FAR 32 shape; the
+ * primary `FIXTURE_INVOICE_REVIEW` is the post-award invoice record.
+ */
+export const FIXTURE_LEGACY_TEP_PANEL: {
+  id: string;
+  contractModificationId: string;
+  panelMembers: string[];
+  factors: InvoiceReviewFactor[];
+  state: string;
+  ssddDocId: string | null;
+} = {
   id: 'eval-0142',
-  contractModificationId: 'sol-0142',
+  contractModificationId: 'mod-0142',
   panelMembers: ['ev-allen', 'ev-mendez', 'ev-park'],
   factors: [
     { id: 'f-tech', name: 'Technical Approach', weight: 40, sectionM: 'M.3.1' },
@@ -198,6 +305,7 @@ export const FIXTURE_INVOICE_REVIEW: InvoiceReview = {
   ssddDocId: null,
 };
 
+// @deprecated pre-award TEP scores — retained for consensus-ssdd / evaluator-workspace repurpose.
 export const FIXTURE_SCORES: InvoiceReviewScore[] = [
   { evaluatorId: 'ev-allen', evaluatorName: 'Dr. Allen', proposalId: 'prop-001', factorId: 'f-tech', score: 9, narrative: 'Strong zero-trust pattern; FedRAMP boundary clearly drawn.', submittedAt: new Date().toISOString() },
   { evaluatorId: 'ev-allen', evaluatorName: 'Dr. Allen', proposalId: 'prop-002', factorId: 'f-tech', score: 7, narrative: 'Acceptable approach; some risk on multi-cloud handoff.', submittedAt: new Date().toISOString() },

@@ -2,15 +2,16 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { RoleService } from '../../services/role.service';
-import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_AMENDMENTS, FIXTURE_CPARS, FIXTURE_FINDINGS } from '../../services/mock-fixtures';
+import { FIXTURE_CONTRACT_MODIFICATIONS, FIXTURE_INVOICES, FIXTURE_DELIVERABLES, FIXTURE_FINDINGS } from '../../services/mock-fixtures';
 import { NotificationService } from '../../services/notification.service';
 
 /**
- * Officer Dashboard — role-aware landing for CO / CS / PM / SSA.
+ * Payment-ops Dashboard — role-aware landing for CO / COR / CS / PM.
  *
- * Per feature-inventory-target.md: KPI tiles for open contractModifications,
- * proposals awaiting eval, amendments due, CPARs due in 30 days.
- * Touches Item 8 (hardcoded URL lives in the contractModification-list
+ * Post-award KPI tiles: invoices awaiting certification, payments on hold
+ * (improper/returned), modifications pending CO signature, CDRLs overdue,
+ * open DCAA/OIG flags.
+ * Touches Item 8 (hardcoded URL lives in the contract-modification-list
  * component referenced below) — keeping the localized teaching
  * artifact intact.
  */
@@ -25,46 +26,46 @@ import { NotificationService } from '../../services/notification.service';
         <div class="subtitle">{{ role.current.displayName }} · {{ role.current.authorityNote }}</div>
       </div>
       <div>
-        <a routerLink="/contractModifications/new"><button>+ New contractModification</button></a>
+        <a routerLink="/contractModifications/new"><button>+ New SF-30 modification</button></a>
       </div>
     </div>
 
     <section class="kpi-grid">
       <div class="kpi-tile">
-        <div class="kpi-value">{{ openContractModifications() }}</div>
-        <div class="kpi-label">Open contractModifications</div>
+        <div class="kpi-value">{{ invoicesAwaitingCertification() }}</div>
+        <div class="kpi-label">Invoices awaiting certification</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-value">{{ proposalsAwaitingEval() }}</div>
-        <div class="kpi-label">Proposals awaiting eval</div>
+        <div class="kpi-value">{{ paymentsOnHold() }}</div>
+        <div class="kpi-label">Payments on hold (improper)</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-value">{{ amendmentsPending() }}</div>
-        <div class="kpi-label">Amendments unack'd</div>
+        <div class="kpi-value">{{ modsPendingSignature() }}</div>
+        <div class="kpi-label">Mods pending CO signature</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-value">{{ cparsDue() }}</div>
-        <div class="kpi-label">CPARs due ≤ 30 d</div>
+        <div class="kpi-value">{{ cdrlsOverdue() }}</div>
+        <div class="kpi-label">CDRLs overdue</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-value">{{ openFindings() }}</div>
-        <div class="kpi-label">Open OIG findings</div>
+        <div class="kpi-value">{{ openFlags() }}</div>
+        <div class="kpi-label">Open DCAA / OIG flags</div>
       </div>
     </section>
 
     <div class="two-col">
       <div class="card">
-        <h3>Workload pipeline</h3>
+        <h3>Modification pipeline</h3>
         <table>
-          <thead><tr><th>ContractModification</th><th>State</th><th>Due</th></tr></thead>
+          <thead><tr><th>Modification</th><th>State</th><th>Funding Δ</th></tr></thead>
           <tbody>
             <tr *ngFor="let s of pipeline()">
               <td>
                 <a [routerLink]="['/contractModifications', s.id, 'edit']">{{ s.title }}</a>
-                <div style="font-size:0.75rem;color:var(--color-fg-muted)">{{ s.noticeType }} · NAICS {{ s.naics }}</div>
+                <div style="font-size:0.75rem;color:var(--color-fg-muted)">{{ s.contractNumber }} · {{ s.modType }}</div>
               </td>
               <td><span class="badge" [ngClass]="(s.status || '').toLowerCase()">{{ s.status }}</span></td>
-              <td>{{ s.proposalsDueAt ? (s.proposalsDueAt | date:'mediumDate') : '—' }}</td>
+              <td>\${{ (s.fundingDelta || 0).toLocaleString() }}</td>
             </tr>
           </tbody>
         </table>
@@ -106,26 +107,27 @@ export class OfficerDashboardComponent {
     return `${time}, ${this.role.current.displayName.split(' ')[0]}`;
   }
 
-  openContractModifications(): number {
-    return FIXTURE_CONTRACT_MODIFICATIONS.filter((s) =>
-      ['PUBLISHED', 'AMENDED', 'INTERNAL_REVIEW'].includes(s.status as string),
-    ).length;
+  invoicesAwaitingCertification(): number {
+    return FIXTURE_INVOICES.filter((i) => ['received', 'proper'].includes(i.paymentStatus)).length;
   }
 
-  proposalsAwaitingEval(): number {
-    return 3; // matches FIXTURE_PROPOSALS count
+  paymentsOnHold(): number {
+    return FIXTURE_INVOICES.filter((i) => i.paymentStatus === 'improper_returned').length;
   }
 
-  amendmentsPending(): number {
-    return FIXTURE_AMENDMENTS.filter((a) => a.requiresAcknowledgement && a.acknowledgedBy.length < 3).length;
+  modsPendingSignature(): number {
+    return FIXTURE_CONTRACT_MODIFICATIONS.filter((m) => m.status === 'MODIFICATION_REQUEST').length;
   }
 
-  cparsDue(): number {
-    return FIXTURE_CPARS.filter((c) => c.status !== 'PUBLISHED').length;
+  cdrlsOverdue(): number {
+    const now = Date.now();
+    return FIXTURE_DELIVERABLES.filter((d) => d.status !== 'ACCEPTED' && new Date(d.dueAt).getTime() < now).length;
   }
 
-  openFindings(): number {
-    return FIXTURE_FINDINGS.filter((f) => ['OPEN', 'EVIDENCE_REQUESTED', 'IN_REMEDIATION'].includes(f.status)).length;
+  openFlags(): number {
+    const dcaa = FIXTURE_INVOICES.reduce((n, i) => n + i.dcaaFlags.length, 0);
+    const oig = FIXTURE_FINDINGS.filter((f) => ['OPEN', 'EVIDENCE_REQUESTED', 'IN_REMEDIATION'].includes(f.status)).length;
+    return dcaa + oig;
   }
 
   pipeline() {

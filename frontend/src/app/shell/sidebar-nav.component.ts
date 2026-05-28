@@ -16,51 +16,54 @@ interface NavGroup {
 }
 
 const ALL_AUTHENTICATED: Role[] = [
-  'contracting_officer', 'contract_specialist', 'program_manager',
-  'ssa', 'evaluator', 'vendor', 'oig_reviewer', 'sys_admin',
+  'contracting_officer', 'cor', 'contract_specialist', 'program_manager',
+  'dcaa_auditor', 'ssa', 'evaluator', 'vendor', 'oig_reviewer', 'sys_admin',
 ];
 
+// Post-award IA (FAR Part 42/43/32). The inherited pre-award surfaces
+// (public opportunity search, source-selection consensus/SSDD, vendor proposals)
+// still exist as routes/components but are intentionally NOT in the default nav
+// per the post-award reshape — the cohort can grep + repurpose them (OQ-4).
 const NAV: NavGroup[] = [
   {
     title: 'Workspace',
     links: [
-      { label: 'Officer Dashboard', route: '/dashboard', roles: ['contracting_officer', 'contract_specialist', 'program_manager', 'ssa'] },
-      { label: 'Evaluator Workspace', route: '/invoiceReview/workspace', roles: ['evaluator', 'contracting_officer'] },
-      { label: 'Vendor Portal', route: '/vendor/proposals', roles: ['vendor'] },
+      { label: 'Dashboard', route: '/dashboard', roles: ['contracting_officer', 'cor', 'contract_specialist', 'program_manager'] },
+      { label: 'Contractor Portal', route: '/vendor/proposals', roles: ['vendor'] },
     ],
   },
   {
-    title: 'ContractModifications',
+    title: 'Modifications',
     links: [
-      { label: 'ContractModifications Index', route: '/contractModifications', roles: ['contracting_officer', 'contract_specialist', 'program_manager'] },
-      { label: 'New ContractModification', route: '/contractModifications/new', roles: ['contracting_officer', 'contract_specialist'] },
-      { label: 'Public Opportunity Search', route: '/public/opportunities', roles: [] },
+      { label: 'Modifications Index', route: '/contractModifications', roles: ['contracting_officer', 'cor', 'contract_specialist', 'program_manager'] },
+      { label: 'New SF-30 Modification', route: '/contractModifications/new', roles: ['contracting_officer', 'cor', 'contract_specialist'] },
     ],
   },
   {
-    title: 'Source Selection',
+    title: 'Invoices & Payment',
     links: [
-      { label: 'Consensus + SSDD', route: '/invoiceReview/eval-0142/consensus', roles: ['ssa', 'contracting_officer'] },
+      { label: 'Invoice Queue', route: '/invoiceReviews', roles: ['contracting_officer', 'cor', 'dcaa_auditor'] },
+      { label: 'DCAA Audit Trail', route: '/admin/audit', roles: ['dcaa_auditor', 'oig_reviewer', 'contracting_officer'] },
     ],
   },
   {
-    title: 'Post-Award',
+    title: 'Contract Performance',
     links: [
-      { label: 'Award Record', route: '/awards/aw-2026-001', roles: ['contracting_officer', 'program_manager', 'vendor'] },
-      { label: 'Contract Admin', route: '/contracts/ctr-0001/admin', roles: ['contracting_officer', 'program_manager'] },
-      { label: 'CPAR Reviews', route: '/contracts/ctr-0001/cpars', roles: ['contracting_officer', 'program_manager', 'vendor'] },
+      { label: 'Contract Admin', route: '/contracts/ctr-0001/admin', roles: ['contracting_officer', 'cor', 'program_manager'] },
+      { label: 'CPAR Reviews', route: '/contracts/ctr-0001/cpars', roles: ['contracting_officer', 'cor', 'program_manager', 'vendor'] },
+      { label: 'Award Record', route: '/awards/aw-2026-001', roles: ['contracting_officer', 'cor', 'program_manager', 'vendor'] },
     ],
   },
   {
     title: 'Reports',
     links: [
-      { label: 'All Reports', route: '/reports', roles: ['contracting_officer', 'program_manager', 'ssa', 'sys_admin', 'oig_reviewer'] },
+      { label: 'All Reports', route: '/reports', roles: ['contracting_officer', 'cor', 'program_manager', 'sys_admin', 'oig_reviewer'] },
     ],
   },
   {
-    title: 'Vendors',
+    title: 'Contractors',
     links: [
-      { label: 'Vendor Directory', route: '/vendors', roles: ['contracting_officer', 'contract_specialist', 'evaluator', 'program_manager'] },
+      { label: 'Contractor Directory', route: '/vendors', roles: ['contracting_officer', 'cor', 'contract_specialist', 'program_manager'] },
     ],
   },
   {

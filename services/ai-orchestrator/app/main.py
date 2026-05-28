@@ -13,11 +13,11 @@ DELIBERATE BROWNFIELD DEBT (annotated for cohort discovery):
   Item 5 (partial) — This file uses the LangChain v1.0+ composed-Runnable
            pattern (prompt | llm | parser). The legacy LLMChain(...).run(...)
            pattern lives in app/legacy_chain.py and is invoked from 3 entry
-           points: /draft-contract-modification (Drafting Wizard), /draft-amendment
-           (Amendment Editor), and the notification-copy generator (called
-           upstream via the Spring Notifier.cparWindowOpened path which fans
-           to /draft-amendment with a CPAR-window topic). Cohort consolidates
-           in W2.
+           points: /draft-contract-modification (SF-30 rationale drafting),
+           /draft-amendment (bilateral supplemental narrative), and the
+           notification-copy generator (called upstream via the Spring
+           Notifier path which fans to /draft-amendment with a
+           payment/modification-window topic). Cohort consolidates in W2.
 
   Item 6 (partial) — No correlation-ID logging at all. Other services log
            X-Request-ID / correlationId / traceId — this one logs nothing.
@@ -101,10 +101,20 @@ class FactorSuggestRequest(BaseModel):
 
 
 class IntakeTriageRequest(BaseModel):
-    """Multi-agent proposal-intake triage request. ⚠ Item 4 — no Field."""
+    """Multi-agent modification-intake triage request. ⚠ Item 4 — no Field."""
     proposal_id: str
     contract_modification_id: str | None = None
     raw_text: str | None = None
+
+
+class InvoiceReviewRequest(BaseModel):
+    """Single-agent invoice-review / validation request. ⚠ Item 4 — no Field."""
+    invoice_number: str
+    contract_number: str | None = None
+    receiving_report_ref: str | None = None
+    notes: str | None = None
+    # For /validate-invoice: which FAR 32.905 required elements were supplied.
+    provided_elements: list[str] | None = None
 
 
 @app.get("/health")
@@ -119,7 +129,11 @@ def health() -> dict[str, str]:
 @app.post("/draft-contract-modification")
 def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
     """
-    Section C SOW + Section L instructions drafting (Workflow 1).
+    Post-award SF-30 modification-rationale drafting (FAR Part 43).
+
+    Single-agent assist: given a change request (funding delta, PoP change,
+    scope revision), drafts the modification rationale + FAR authority cite
+    a CO/COR reviews before issuing the SF-30.
 
     Bedrock invocation via app.bedrock_client.invoke_model (D-060 — real
     Bedrock from W2, falls back to stub if no AWS creds). Result is
@@ -139,9 +153,11 @@ def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
     # Bedrock call (D-060). Drops result into 'draft' field; preserves the
     # null-clause_id drift surface on top.
     bedrock = invoke_model(
-        f"Draft a federal acquisition clause paragraph about: {req.topic}. "
+        f"Draft the rationale for a post-award contract modification (SF-30) "
+        f"covering: {req.topic}. "
         f"Constraints: {req.constraints or 'none'}.",
-        system="You draft FAR/DFARS-compliant contract_modification language.",
+        system="You draft FAR Part 43-compliant contract modification rationale "
+               "(SF-30). Cite the governing Changes-clause authority.",
     )
 
     # ⚠ Item 4 — 1-in-3 returns null clause_id; downstream service can break.
@@ -164,7 +180,10 @@ def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
 @app.post("/draft-amendment")
 def draft_amendment(req: DraftRequest) -> dict[str, Any]:
     """
-    Amendment narrative drafting (Workflow 2; FAR 15.206).
+    Bilateral supplemental-agreement narrative drafting (FAR 43.103).
+
+    Post-award: drafts the negotiated change narrative for a bilateral
+    modification that requires contractor consent.
 
     ⚠ Item 4 — no Pydantic response model.
     ⚠ Item 5 — routes through legacy_chain construction (the legacy LLMChain
@@ -174,21 +193,24 @@ def draft_amendment(req: DraftRequest) -> dict[str, Any]:
     """
     log.info("draft-amendment called topic=%r", req.topic)
     bedrock = invoke_model(
-        f"Draft an amendment narrative for: {req.topic}. "
-        f"Vendor-impact considerations: {req.constraints or 'standard scope change'}.",
-        system="You draft FAR 15.206-compliant amendment narratives.",
+        f"Draft a bilateral supplemental-agreement narrative for: {req.topic}. "
+        f"Contractor-impact considerations: {req.constraints or 'standard scope change'}.",
+        system="You draft FAR 43.103-compliant bilateral modification narratives.",
     )
     return {
         "amendment_text": bedrock["body"],
         "model": BEDROCK_MODEL_ID,
-        "predicted_vendor_impact": "re-acknowledgement required",
+        "predicted_vendor_impact": "contractor consent required",
     }
 
 
 @app.post("/answer-qa")
 def answer_qa(req: QaDraftRequest) -> dict[str, Any]:
     """
-    Vendor Q&A response drafting using clause-library RAG.
+    Contractor administration-question response drafting using clause-library RAG.
+
+    Post-award: answers vendor PM questions about a modification or payment
+    (e.g. "why was invoice INV-204 returned?").
 
     ⚠ Item 4 — no Pydantic response model.
     ⚠ Item 6 — no correlation-id forwarded.
@@ -198,9 +220,10 @@ def answer_qa(req: QaDraftRequest) -> dict[str, Any]:
     """
     log.info("answer-qa called question=%r", req.question[:60])
     bedrock = invoke_model(
-        f"Vendor question: {req.question}\n\n"
-        f"Draft a FAR-compliant agency answer. Cite clause IDs where applicable.",
-        system="You answer vendor questions about federal contract_modifications.",
+        f"Contractor question: {req.question}\n\n"
+        f"Draft a FAR-compliant COR/CO answer. Cite clause IDs where applicable.",
+        system="You answer contractor questions about post-award contract "
+               "modifications and payment (FAR Part 42/43/32).",
     )
     return {
         "answer_draft": bedrock["body"],
@@ -226,16 +249,17 @@ def rag_clause_search(req: ClauseSearchRequest) -> dict[str, Any]:
     log.info("rag/clause-search query=%r far_part=%r top_k=%d",
              req.query[:60], req.far_part, req.top_k)
     # ⚠ Atlas Vector Search call would land here; stub returns a shaped
-    # response so the surface flows.
+    # response so the surface flows. Corpus = FAR Part 42/43/32 (post-award).
     bedrock = invoke_model(
-        f"Summarize FAR/DFARS clauses relevant to: {req.query}",
-        system="You retrieve FAR/DFARS clauses; cite clause IDs.",
+        f"Summarize FAR Part 42/43/32 clauses relevant to: {req.query}",
+        system="You retrieve FAR Part 42/43/32 (post-award admin, modifications, "
+               "contract financing) clauses; cite clause IDs.",
     )
     hits = [
-        {"clause_id": "FAR-52.212-4", "title": "Contract Terms and Conditions",
+        {"clause_id": "FAR-43.103", "title": "Types of Contract Modifications",
          "score": 0.91, "far_part": "FAR"},
-        {"clause_id": "DFARS-252.204-7012", "title": "Safeguarding Covered Defense Information",
-         "score": 0.87, "far_part": "DFARS"},
+        {"clause_id": "FAR-32.905", "title": "Payment Documentation and Process (Proper Invoice)",
+         "score": 0.87, "far_part": "FAR"},
     ][: req.top_k]
     return {
         "query": req.query,
@@ -248,20 +272,24 @@ def rag_clause_search(req: ClauseSearchRequest) -> dict[str, Any]:
 @app.post("/eval/factor-suggest")
 def eval_factor_suggest(req: FactorSuggestRequest) -> dict[str, Any]:
     """
-    Section M factor-narrative suggestion. HITL-gated by evaluator.
+    Invoice line-item / DCAA-flag narrative suggestion. HITL-gated by COR.
+
+    Post-award: suggests review narrative for a flagged invoice line item
+    (e.g. unit-price variance, potential unallowable cost FAR 31.205).
 
     ⚠ Item 4 — no Pydantic response model.
     ⚠ Item 6 — no correlation-id forwarded.
     """
     log.info("eval/factor-suggest topic=%r", req.topic)
     bedrock = invoke_model(
-        f"Suggest a Section M factor narrative for: {req.topic}. "
-        f"Proposal context: {req.constraints or '(none)'}",
-        system="You suggest evaluator narrative; HITL approves before publish.",
+        f"Suggest an invoice-review narrative for: {req.topic}. "
+        f"Line-item context: {req.constraints or '(none)'}",
+        system="You suggest COR invoice-review narrative; HITL approves before "
+               "certify/return.",
     )
     return {
         "narrative_suggestion": bedrock["body"],
-        "hitl_gate": "evaluator-review-required",
+        "hitl_gate": "cor-review-required",
         "model": BEDROCK_MODEL_ID,
     }
 
@@ -269,36 +297,106 @@ def eval_factor_suggest(req: FactorSuggestRequest) -> dict[str, Any]:
 @app.post("/eval/ssdd-draft")
 def eval_ssdd_draft(req: DraftRequest) -> dict[str, Any]:
     """
-    Source Selection Decision Document tradeoff narrative drafting.
-    SSA-gated (FAR 15.308 — non-delegable).
+    Invoice-review summary drafting (FAR 32.905 proper-invoice + payment
+    determination). COR/CO-gated before certification.
+
+    Endpoint path kept as /eval/ssdd-draft for client compatibility
+    (invoice-review-service AiOrchestratorClient.draftSsdd); the `clause_id`
+    response key is preserved so the caller can stash a doc reference. The
+    prompt text is reworded to the post-award invoice-review summary.
 
     ⚠ Item 4 — no Pydantic response model.
     ⚠ Item 5 — third entry point; copy generated via legacy_chain when the
-       upstream notification path requests CPAR-window copy generation.
+       upstream notification path requests payment-window copy generation.
     ⚠ Item 6 — no correlation-id forwarded.
     """
     log.info("eval/ssdd-draft topic=%r", req.topic)
     bedrock = invoke_model(
-        f"Draft an SSDD tradeoff narrative for: {req.topic}. "
-        f"Constraints: {req.constraints or 'best-value-tradeoff per FAR 15.101-1'}.",
-        system="You draft Source Selection Decision Documents; SSA reviews + signs.",
+        f"Draft an invoice-review summary for: {req.topic}. "
+        f"Constraints: {req.constraints or 'proper-invoice determination per FAR 32.905'}.",
+        system="You draft invoice-review summaries (FAR 32.905); COR/CO reviews "
+               "+ certifies for payment.",
     )
     # Provide a clause_id field so invoice-review-service can stash it.
     return {
         "ssdd_narrative": bedrock["body"],
-        "clause_id": f"SSDD-{random.randint(1000, 9999)}",
-        "hitl_gate": "ssa-signature-required",
+        "clause_id": f"INVREV-{random.randint(1000, 9999)}",
+        "hitl_gate": "co-certification-required",
         "model": BEDROCK_MODEL_ID,
+    }
+
+
+@app.post("/review-invoice")
+def review_invoice(req: InvoiceReviewRequest) -> dict[str, Any]:
+    """
+    Single-agent invoice-review assistant (FAR 32.905 + prompt payment).
+
+    Post-award: given an invoice + receiving-report reference, drafts a
+    review summary (proper/improper determination, prompt-pay due date
+    reminder, DCAA-flag callouts). Single-agent per domain-mapping.yml.
+
+    ⚠ Item 4 — no Pydantic response model (raw dict; `clause_id` key kept).
+    ⚠ Item 6 — no correlation-id forwarded.
+    """
+    log.info("review-invoice invoice_number=%r contract_number=%r",
+             req.invoice_number, req.contract_number)
+    bedrock = invoke_model(
+        f"Review invoice {req.invoice_number} on contract {req.contract_number}. "
+        f"Receiving report: {req.receiving_report_ref or '(unmatched)'}. "
+        f"Line items / notes: {req.notes or '(none)'}.",
+        system="You assist COR invoice review (FAR 32.905 proper-invoice checklist, "
+               "5 CFR 1315 prompt payment). Flag missing required elements + "
+               "cost-type DCAA concerns.",
+    )
+    return {
+        "review_summary": bedrock["body"],
+        "clause_id": "FAR-32.905",
+        "hitl_gate": "cor-determination-required",
+        "model": BEDROCK_MODEL_ID,
+    }
+
+
+@app.post("/validate-invoice")
+def validate_invoice(req: InvoiceReviewRequest) -> dict[str, Any]:
+    """
+    FAR 32.905 proper-invoice required-elements check (deterministic stub).
+
+    Returns which required elements are present/absent and the resulting
+    proper/improper determination. No Bedrock call — pure checklist logic so
+    the cohort can wire the real validation in W2.
+
+    ⚠ Item 4 — no Pydantic response model.
+    ⚠ Item 6 — no correlation-id forwarded.
+    """
+    log.info("validate-invoice invoice_number=%r", req.invoice_number)
+    # FAR 32.905(b) required elements.
+    required = [
+        "contractor_name_address", "invoice_date", "contract_number",
+        "description_of_supplies_services", "quantities_unit_prices",
+        "shipping_payment_terms", "payee_name_address",
+    ]
+    provided = set(req.provided_elements or [])
+    checks = {elem: (elem in provided) for elem in required}
+    missing = [e for e, ok in checks.items() if not ok]
+    proper = len(missing) == 0
+    return {
+        "invoice_number": req.invoice_number,
+        "proper_invoice_checks": checks,
+        "missing_elements": missing,
+        "payment_status": "proper" if proper else "improper_returned",
+        # FAR 32.905(b): improper invoices must be returned within 7 days.
+        "return_deadline_days": None if proper else 7,
+        "far_authority": "FAR 32.905",
     }
 
 
 @app.post("/agent/intake-triage")
 def agent_intake_triage(req: IntakeTriageRequest) -> dict[str, Any]:
     """
-    Multi-agent W3 flow: triage incoming proposal, route to TEP evaluators,
-    escalate anomalies to CO.
+    Multi-agent W3 flow: triage an incoming modification request, route to the
+    COR/CO, escalate anomalies (e.g. funding ceiling breach) to the CO.
 
-    Sequential agent invocations (intake-classifier → evaluator-router →
+    Sequential agent invocations (intake-classifier → reviewer-router →
     anomaly-escalator); each call is currently a single Bedrock invoke
     with the same stub fallback. LangGraph wiring comes in W3.
 
@@ -308,16 +406,21 @@ def agent_intake_triage(req: IntakeTriageRequest) -> dict[str, Any]:
     """
     log.info("agent/intake-triage proposal_id=%r", req.proposal_id)
     classify = invoke_model(
-        f"Classify this proposal's NAICS + complexity: {req.raw_text or req.proposal_id}",
-        system="You classify federal proposals for TEP routing.",
+        f"Classify this modification request's type + funding impact: "
+        f"{req.raw_text or req.proposal_id}",
+        system="You classify post-award contract modifications (FAR Part 43) "
+               "for COR/CO routing.",
     )
     route = invoke_model(
-        f"Recommend 3 TEP evaluators for proposal_id={req.proposal_id}.",
-        system="You route proposals to TEP members based on factor expertise.",
+        f"Recommend the reviewer (COR or CO) for modification request "
+        f"id={req.proposal_id}.",
+        system="You route modifications by authority: admin/unilateral → COR, "
+               "funding/bilateral → CO.",
     )
     anomaly = invoke_model(
-        f"Flag anomalies in proposal_id={req.proposal_id} that warrant CO escalation.",
-        system="You flag anomalies (responsiveness, eligibility, set-aside).",
+        f"Flag anomalies in modification request id={req.proposal_id} that "
+        f"warrant CO escalation (e.g. ceiling breach, scope outside contract).",
+        system="You flag anomalies (funding ceiling, out-of-scope, authority).",
     )
     return {
         "proposal_id": req.proposal_id,
@@ -345,8 +448,8 @@ def draft_contract_modification_v1(req: DraftRequest) -> dict[str, Any]:
     #   prompt | bedrock_llm | StrOutputParser()
     # We just demonstrate the construction without invoking it.
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You draft federal acquisition clauses."),
-        ("user", "Draft a paragraph about: {topic}. Constraints: {constraints}."),
+        ("system", "You draft post-award contract-modification rationale (SF-30, FAR Part 43)."),
+        ("user", "Draft the rationale for: {topic}. Constraints: {constraints}."),
     ])
     parser = StrOutputParser()
     _chain_scaffold = prompt | parser  # would normally be: prompt | llm | parser
@@ -355,8 +458,8 @@ def draft_contract_modification_v1(req: DraftRequest) -> dict[str, Any]:
              req.topic)
 
     return {
-        "clause_id": f"FAR-52.{random.randint(200, 250)}-{random.randint(1, 30)}",
-        "draft": f"[stub-v1] composed-runnable draft about {req.topic}",
+        "clause_id": f"FAR-43.{random.randint(1, 5)}-{random.randint(1, 30)}",
+        "draft": f"[stub-v1] composed-runnable modification rationale about {req.topic}",
         "model": BEDROCK_MODEL_ID,
         "pattern": "prompt | llm | parser",
     }

@@ -29,8 +29,16 @@ def build_draft_prompt(user_input: str) -> str:
 
     Direct interpolation of user_input into the prompt body. No sanitization,
     no system/user role separation, no structured-input segregation.
+
+    NOTE (reshape 2026-05-28): the surrounding instruction text was reworded
+    from pre-award solicitation drafting to post-award SF-30 contract-
+    modification rationale drafting (FAR Part 43). The UNSAFE f-string
+    interpolation of `user_input` is preserved verbatim — that is the
+    pair-unique OWASP LLM01 debt (`test_prompt_template_user_controlled_debt.py`).
+    Do NOT add sanitization or role-based segregation here.
     """
-    return f"""Draft a contract-modification for the following request:
+    return f"""Draft the rationale narrative for a post-award contract modification
+(SF-30, FAR Part 43) based on the following change request:
 {user_input}
 
 Output as JSON with keys: clause_id, modification_text, justification.

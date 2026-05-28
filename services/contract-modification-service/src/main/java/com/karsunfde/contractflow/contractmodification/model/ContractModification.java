@@ -8,9 +8,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * ContractModification document. Expanded W1 (was just id/title/description/status)
- * to the full FAR 15.204 Section A-M shape — drives the cohort's W1 Tue
- * inventory walkthrough.
+ * ContractModification document — a post-award SF-30 (Standard Form 30,
+ * "Amendment of Solicitation / Modification of Contract"). Drives the
+ * cohort's W1 Tue inventory walkthrough.
+ *
+ * Domain (post-award contract administration, anchor: WAWF):
+ *   A modification changes an awarded contract — adds/removes funds, shifts
+ *   the period of performance, or revises scope under a FAR Part 43 Changes
+ *   authority. Unilateral mods (change order / administrative) are signed by
+ *   the CO alone; bilateral supplemental agreements require contractor
+ *   consent. See FAR 43.103 (definitions) and FAR 43.301 (use of SF-30).
  *
  * ⚠ DELIBERATE — Item 10:
  *   {@code agencyId} is in the schema (so the data is multi-tenant-shaped)
@@ -20,13 +27,15 @@ import java.util.Map;
  * ⚠ DELIBERATE — Item 9:
  *   {@code description} is not sanitized; arbitrary HTML accepted on write
  *   and returned verbatim on read. Cohort fixes in W4 Wed AI Security
- *   Engineering Day (prompt-injection-via-stored-content — description
- *   feeds the ai-orchestrator prompt). New W1 fields {@code sections}
- *   carry the same un-sanitized-text debt.
+ *   Engineering Day (prompt-injection-via-stored-content — description /
+ *   changeRationale feed the ai-orchestrator prompt). The {@code sections}
+ *   map carries the same un-sanitized-text debt.
  *
- * State machine (Workflow 1):
- *   DRAFT -> INTERNAL_REVIEW -> READY_TO_PUBLISH -> PUBLISHED -> (AMENDED)* -> CLOSED
- *   CANCELLED is reachable from any pre-PUBLISHED state.
+ * State machine (post-award modification lifecycle):
+ *   MODIFICATION_REQUEST -> PERFORMANCE_MONITORING -> INVOICE_PROCESSING -> CLOSEOUT
+ *   CANCELLED is reachable from any pre-CLOSEOUT state.
+ *   (Legacy DRAFT/INTERNAL_REVIEW/PUBLISHED values still flow through as raw
+ *    strings — {@code status} is untyped — so existing fixtures keep loading.)
  */
 @Document(collection = "contractModifications")
 public class ContractModification {
@@ -39,20 +48,45 @@ public class ContractModification {
 
     private String title;
 
-    /** ⚠ Item 9 — accepts arbitrary HTML. */
+    /** ⚠ Item 9 — accepts arbitrary HTML. Doubles as the SF-30 change rationale. */
     private String description;
 
     private String status;
 
-    /** NAICS code, e.g., 541512. */
+    // --- SF-30 post-award modification fields (FAR Part 43) ---
+
+    /** Base contract being modified, e.g. GS-35F-0001V. */
+    private String contractNumber;
+    /** SF-30 modification number, e.g. P00001 (supplemental) / A00001 (admin). */
+    private String modificationNumber;
+    /**
+     * Modification type per FAR 43:
+     *   unilateral_change_order | unilateral_admin | bilateral_supplemental
+     */
+    private String modType;
+    /** FAR authority cite for the change, e.g. FAR 52.243-1 (Changes — FFP). */
+    private String farAuthority;
+    /** Net funding change (USD); positive = add funds, negative = deobligate. */
+    private Double fundingDelta;
+    /** Revised period-of-performance start (if PoP changes). */
+    private Instant popStart;
+    /** Revised period-of-performance end (if PoP changes). */
+    private Instant popEnd;
+    /** Issue date (unilateral) / mutually agreed effective date (bilateral). */
+    private Instant effectiveDate;
+    /** True for bilateral supplemental agreements (contractor signature required). */
+    private boolean contractorConsentRequired;
+
+    /** NAICS code (legacy pre-award field — retained for inherited fixtures). */
     private String naics;
-    /** Set-aside category (e.g., 8(a), WOSB, SDVOSB, none). */
+    /** Set-aside category (legacy pre-award field — retained for inherited fixtures). */
     private String setAside;
 
     /**
-     * Sections A-M (FAR 15.204 RFP structure). Stored as JSON-ish map so the
-     * cohort can extend without schema changes. ⚠ Item 9 — values
-     * unsanitized; feeds /draft-contract-modification + /draft-amendment prompts.
+     * Free-form sub-sections keyed by name (e.g. changeNarrative,
+     * priceCostImpact, fundingCitation). Stored as a map so the cohort can
+     * extend without schema changes. ⚠ Item 9 — values unsanitized; feed the
+     * /draft-contract-modification prompt.
      */
     private Map<String, String> sections = new HashMap<>();
 
@@ -85,6 +119,33 @@ public class ContractModification {
 
     public String getSetAside() { return setAside; }
     public void setSetAside(String setAside) { this.setAside = setAside; }
+
+    public String getContractNumber() { return contractNumber; }
+    public void setContractNumber(String contractNumber) { this.contractNumber = contractNumber; }
+
+    public String getModificationNumber() { return modificationNumber; }
+    public void setModificationNumber(String modificationNumber) { this.modificationNumber = modificationNumber; }
+
+    public String getModType() { return modType; }
+    public void setModType(String modType) { this.modType = modType; }
+
+    public String getFarAuthority() { return farAuthority; }
+    public void setFarAuthority(String farAuthority) { this.farAuthority = farAuthority; }
+
+    public Double getFundingDelta() { return fundingDelta; }
+    public void setFundingDelta(Double fundingDelta) { this.fundingDelta = fundingDelta; }
+
+    public Instant getPopStart() { return popStart; }
+    public void setPopStart(Instant popStart) { this.popStart = popStart; }
+
+    public Instant getPopEnd() { return popEnd; }
+    public void setPopEnd(Instant popEnd) { this.popEnd = popEnd; }
+
+    public Instant getEffectiveDate() { return effectiveDate; }
+    public void setEffectiveDate(Instant effectiveDate) { this.effectiveDate = effectiveDate; }
+
+    public boolean isContractorConsentRequired() { return contractorConsentRequired; }
+    public void setContractorConsentRequired(boolean contractorConsentRequired) { this.contractorConsentRequired = contractorConsentRequired; }
 
     public Map<String, String> getSections() { return sections; }
     public void setSections(Map<String, String> sections) { this.sections = sections; }

@@ -1,15 +1,19 @@
-/* acquire-gov — global styles
+/* contract-payment-flow — global styles
  * Federal-government UX pattern: USWDS-inspired (Karsun's CAMEO platform
  * uses USWDS in production). Locally re-implemented to avoid pulling
  * @uswds dependency into the brownfield baseline.
+ *
+ * Domain accent: post-award contract administration / payment (WAWF-aligned)
+ * uses an INDIGO/BLUE accent (#1565c0) to visually distinguish this pair
+ * project from the pre-award acquire-gov baseline (GSA blue).
  */
 :root {
   --color-fg: #1a1a1a;
   --color-fg-muted: #555;
   --color-bg: #f8f8f5;
   --color-surface: #ffffff;
-  --color-accent: #1f4e79;        /* GSA blue */
-  --color-accent-dark: #163b5c;
+  --color-accent: #1565c0;        /* contract-payment-flow indigo/blue */
+  --color-accent-dark: #0d47a1;
   --color-border: #d0d0c8;
   --color-border-strong: #999;
   --color-success: #2e7d32;
@@ -60,6 +64,12 @@ body {
   padding: 0.1rem 0.6rem;
   font-size: 0.75rem;
   margin-left: 0.5rem;
+}
+.topbar .agency-badge.domain-badge {
+  background: rgba(255,255,255,0.92);
+  color: var(--color-accent-dark);
+  font-weight: 700;
+  letter-spacing: 0.3px;
 }
 .topbar-actions {
   display: flex;

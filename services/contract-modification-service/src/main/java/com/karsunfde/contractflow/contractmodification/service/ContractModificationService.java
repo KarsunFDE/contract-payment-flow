@@ -45,7 +45,15 @@ public class ContractModificationService {
         s.setTitle(req.getTitle());
         // ⚠ Item 9 — no Jsoup.clean, no escape, no length cap.
         s.setDescription(req.getDescription());
-        s.setStatus(req.getStatus() != null ? req.getStatus() : "DRAFT");
+        s.setStatus(req.getStatus() != null ? req.getStatus() : "MODIFICATION_REQUEST");
+        // SF-30 post-award fields (FAR Part 43).
+        s.setContractNumber(req.getContractNumber());
+        s.setModificationNumber(req.getModificationNumber());
+        s.setModType(req.getModType());
+        s.setFarAuthority(req.getFarAuthority());
+        s.setFundingDelta(req.getFundingDelta());
+        s.setContractorConsentRequired(req.isContractorConsentRequired());
+        s.setEffectiveDate(Instant.now());
         s.setCreatedAt(Instant.now());
         s.setUpdatedAt(Instant.now());
 
@@ -81,6 +89,12 @@ public class ContractModificationService {
             // ⚠ Item 9.
             s.setDescription(req.getDescription());
             if (req.getStatus() != null) s.setStatus(req.getStatus());
+            if (req.getContractNumber() != null) s.setContractNumber(req.getContractNumber());
+            if (req.getModificationNumber() != null) s.setModificationNumber(req.getModificationNumber());
+            if (req.getModType() != null) s.setModType(req.getModType());
+            if (req.getFarAuthority() != null) s.setFarAuthority(req.getFarAuthority());
+            if (req.getFundingDelta() != null) s.setFundingDelta(req.getFundingDelta());
+            s.setContractorConsentRequired(req.isContractorConsentRequired());
             s.setUpdatedAt(Instant.now());
             ContractModification saved = repo.save(s);
             auditLogger.recordAsync("UPDATE", "contractModification", saved.getId(),

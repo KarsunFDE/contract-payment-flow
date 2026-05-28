@@ -38,14 +38,16 @@ export class RoleSwitcherComponent {
     // pattern is visible to instructor + cohort.
     const landing: Record<Role, string> = {
       contracting_officer: '/dashboard',
+      cor: '/dashboard',
       contract_specialist: '/dashboard',
       program_manager: '/dashboard',
-      ssa: '/dashboard',
-      evaluator: '/invoiceReview/workspace',
+      dcaa_auditor: '/invoiceReviews',
       vendor: '/vendor/proposals',
       oig_reviewer: '/admin/findings',
       sys_admin: '/admin/users',
       public: '/public/opportunities',
+      ssa: '/dashboard',
+      evaluator: '/invoiceReview/workspace',
     };
     this.router.navigateByUrl(landing[next]);
   }

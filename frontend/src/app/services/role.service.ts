@@ -27,7 +27,7 @@ export class RoleService {
       ? localStorage.getItem(STORAGE_KEY)
       : null;
     const initial = ROLE_PROFILES.find((p) => p.role === stored)
-      ?? ROLE_PROFILES.find((p) => p.role === 'contracting_officer')!;
+      ?? ROLE_PROFILES.find((p) => p.role === 'cor')!;
     this.subject = new BehaviorSubject<RoleProfile>(initial);
     this.profile$ = this.subject.asObservable();
   }

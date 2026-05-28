@@ -32,12 +32,12 @@ export const routes: Routes = [
   {
     path: 'dashboard',
     component: OfficerDashboardComponent,
-    canMatch: [roleGuard('contracting_officer', 'contract_specialist', 'program_manager', 'ssa', 'sys_admin')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'contract_specialist', 'program_manager', 'ssa', 'sys_admin')],
   },
   {
     path: 'reports',
     component: ReportsHubComponent,
-    canMatch: [roleGuard('contracting_officer', 'program_manager', 'ssa', 'sys_admin', 'oig_reviewer')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'program_manager', 'ssa', 'sys_admin', 'oig_reviewer')],
   },
   // Drill-down report routes alias back to the hub (filter via query params in W5).
   { path: 'reports/pipeline', component: ReportsHubComponent },
@@ -52,7 +52,7 @@ export const routes: Routes = [
   {
     path: 'contractModifications/new',
     component: ContractModificationWizardComponent,
-    canMatch: [roleGuard('contracting_officer', 'contract_specialist')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'contract_specialist')],
   },
   // Legacy single-page create form kept available under a sub-route so the
   // brownfield baseline is still demoable.
@@ -82,12 +82,12 @@ export const routes: Routes = [
   {
     path: 'vendors',
     component: VendorDirectoryComponent,
-    canMatch: [roleGuard('contracting_officer', 'contract_specialist', 'evaluator', 'program_manager', 'sys_admin')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'contract_specialist', 'evaluator', 'program_manager', 'sys_admin')],
   },
   {
     path: 'vendors/:id',
     component: VendorDetailComponent,
-    canMatch: [roleGuard('contracting_officer', 'contract_specialist', 'evaluator', 'program_manager', 'sys_admin')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'contract_specialist', 'evaluator', 'program_manager', 'sys_admin')],
   },
   {
     path: 'vendor/proposals',
@@ -114,7 +114,7 @@ export const routes: Routes = [
   {
     path: 'contracts/:id/admin',
     component: ContractAdminComponent,
-    canMatch: [roleGuard('contracting_officer', 'program_manager', 'sys_admin', 'oig_reviewer')],
+    canMatch: [roleGuard('contracting_officer', 'cor', 'program_manager', 'sys_admin', 'oig_reviewer')],
   },
   { path: 'contracts/:id/cpars', component: CparReviewComponent },
 

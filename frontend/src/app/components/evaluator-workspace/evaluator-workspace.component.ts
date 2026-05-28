@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { RoleService } from '../../services/role.service';
-import { FIXTURE_INVOICE_REVIEW, FIXTURE_PROPOSALS, FIXTURE_SCORES } from '../../services/mock-fixtures';
+import { FIXTURE_LEGACY_TEP_PANEL, FIXTURE_PROPOSALS, FIXTURE_SCORES } from '../../services/mock-fixtures';
 import { InvoiceReviewScore } from '../../models/invoice-review';
 
 /**
@@ -65,7 +65,7 @@ import { InvoiceReviewScore } from '../../models/invoice-review';
   `,
 })
 export class EvaluatorWorkspaceComponent {
-  invoiceReview = FIXTURE_INVOICE_REVIEW;
+  invoiceReview = FIXTURE_LEGACY_TEP_PANEL;
   proposals = FIXTURE_PROPOSALS;
   scoreCache: Record<string, InvoiceReviewScore> = {};
 

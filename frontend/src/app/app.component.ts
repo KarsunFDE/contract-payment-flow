@@ -21,6 +21,7 @@ import { RoleService } from './services/role.service';
       <header class="topbar">
         <div>
           <h1>contract-payment-flow
+            <span class="agency-badge domain-badge">Post-Award · Payment</span>
             <span class="agency-badge" *ngIf="role.current.agencyId">{{ role.current.agencyId }}</span>
           </h1>
         </div>
