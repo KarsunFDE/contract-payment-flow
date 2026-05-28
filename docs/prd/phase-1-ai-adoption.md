@@ -115,7 +115,7 @@ Boundaries are deliberate and sharp. Out of scope (most are Phase 2 or out-of-co
 
 Three capabilities in sequence; each one's gap is why the next exists. Stated as
 outcomes — **the planning sessions decide how.** (Aspect agent shape is
-**single-agent**.)
+**multi-agent** — see M3's decision-routing design.)
 
 ### M1 — LLM-assisted modification-rationale drafting
 - **REQ-AID-1** The platform drafts a contract-modification rationale from a CO/COR-stated reason, surfacing the relevant FAR Part 43 references. *Done:* a CO/COR gets a reviewable draft rationale on demand.
@@ -129,12 +129,31 @@ outcomes — **the planning sessions decide how.** (Aspect agent shape is
 - **REQ-RAG-3** One agency can never retrieve another agency's contracts or invoices. *Done:* cross-tenant retrieval is impossible and proven by test.
 - **REQ-RAG-4** Retrieval quality is measured and protected from regression. *Done:* an evaluation gate blocks changes that degrade grounding.
 
-### M3 — Assisted modification + invoice-review workflow
-- **REQ-AGT-1** A single-agent assist runs modification-rationale drafting and invoice-anomaly flagging on synthetic contracts/invoices. *Done:* the flow runs end to end and produces a draft + flagged anomalies plus a gated authorization step.
-- **REQ-AGT-2** Every payment- or modification-authorizing (irreversible) step stops for the CO; the agent cannot pass it, and processing is idempotent (no double-pay) *(HITL)*. *Done:* no code path auto-authorizes a payment/mod, and a replayed invoice does not double-process.
-- **REQ-AGT-3** A paused decision survives a real-world human delay (hours or days) and resumes without loss or regeneration. *Done:* a run pauses for CO authorization and resumes intact after a restart.
-- **REQ-AGT-4** Every gated decision is auditable for DCAA/OIG — who decided, what they saw, under which authority. *Done:* an auditor can reconstruct each modification/payment decision from the trail alone.
+### M3 — Agentic modification + invoice workflow (multi-agent)
+
+A multi-agent flow handles modification requests and invoices: an
+**anomaly-detector** (flags funding-ceiling breach, out-of-scope change,
+unit-price variance, missing FAR 32.905 elements, potential FAR 31.205
+unallowable cost), an **adjudicator** that tests each flag against the governing
+FAR clause + precedent (M2 retrieval), and a **decision-router** that sorts each
+item into one of three lanes:
+
+- **Auto-approve / auto-process** — *only* when the action is reversible, within
+  delegated COR authority, under the threshold policy, and anomaly-free. Proceeds
+  against mock execution and writes an audit record; no human needed.
+- **HITL escalation (hard gate)** — reserved (FAR 43.102 — only the CO executes
+  mods), irreversible (payment certification), over threshold, or anomaly-flagged.
+  Stops for the CO/COR.
+- **Return / route / hold (other)** — non-terminal: return-to-vendor (improper
+  invoice, FAR 32.905 → 7-day return), request-more-info, route COR↔CO by
+  authority, or hold (e.g. pending DCAA).
+
+- **REQ-AGT-1** A multi-agent flow (anomaly-detector + adjudicator + decision-router) processes modification requests and invoices on synthetic data. *Done:* the flow runs end to end and produces, per item, a disposition in one of the three lanes plus its supporting rationale.
+- **REQ-AGT-2** The router classifies every item into auto-approve / HITL-escalate / return-route, and **reserved or irreversible steps are never auto-approved** (FAR 43.102 mod execution + payment certification always HITL) regardless of model confidence; processing is idempotent (no double-pay). *Done:* no code path auto-executes a reserved/irreversible action, and a replayed invoice does not double-process.
+- **REQ-AGT-3** A paused (escalated) decision survives a real-world human delay (hours or days) and resumes without loss or regeneration. *Done:* a run pauses for CO authorization and resumes intact after a restart.
+- **REQ-AGT-4** Every disposition in **every lane** (auto-approve included) is auditable for DCAA/OIG — who/what decided it, under which authority, in which lane, and why. *Done:* an auditor can reconstruct each decision — and each auto-approval — from the trail alone.
 - **REQ-AGT-5** The data answers the relational questions a COR/CO asks (e.g. "every prior mod on this contract and its rationale lineage"). *Done:* the key cross-record question is answerable at interactive speed.
+- **REQ-AGT-6** The auto-approval policy is explicit, bounded, and default-deny — the reversibility / delegated-authority / threshold / anomaly conditions that permit auto-processing are written down and testable, not implicit. *Done:* the conditions under which the system auto-acts are declared; when any is unmet or uncertain, the item escalates.
 
 ## 7. Principles (cross-cutting)
 
@@ -142,6 +161,7 @@ Non-negotiable; *how* they're implemented is planned.
 
 - **Authority over accuracy.** Gates exist for accountability, not model quality. Payment/modification authorization is a **hard** gate; confidence never downgrades one.
 - **Right-sized HITL.** Classify by reversibility × blast-radius. Gate what must be gated — no skipped authorizations, no gate sprawl.
+- **Bounded autonomy.** The agent may auto-act only on reversible, within-delegated-authority, under-threshold, anomaly-free items — always audited. Reserved or irreversible steps always escalate; uncertainty defaults to escalation, never auto-approval.
 - **Idempotency everywhere on the money path.** No invoice or payment action processes twice.
 - **Grounded or withheld.** No authoritative rationale/answer ships without a real citation; when grounding is weak, escalate rather than guess.
 - **Auditable by default.** Sensitive/AI-assisted decisions write an append-only, DCAA/OIG-replayable record.
@@ -180,7 +200,7 @@ an audit record, zero double-processed invoices (G3/G4).
 
 - **One core entity, one workflow-stage MVP.** `ContractModification` + modification-rationale drafting. Other stages are referenced, not built.
 - **Post-award only.** No solicitation/contract-creation drift (that's upstream / Pair 1 / training-project).
-- **No real authority.** Payment and modification execution are simulated via mock services + audit logs only.
+- **No real authority.** Payment and modification execution are simulated via mock services + audit logs only — including any **auto-approved** action (the auto lane never touches real execution).
 - **Synthetic data only.** No live PII anywhere.
 - **Adopt, don't modernize.** Don't pre-fix inherited debt that Phase 2 owns; surface it, note the blast radius, defer it.
 
@@ -193,6 +213,8 @@ The deliberate handoff to planning — decided there and captured as ADRs.
 - Precedent signal: how prior-modification similarity is computed and surfaced.
 - The "withhold / escalate" confidence bar and how it's measured.
 - Idempotency strategy on the invoice/payment path (keys, dedupe window).
+- The auto-approval policy: which modification types + dollar thresholds + invoice tolerances are eligible for the auto lane, and who owns that policy (default-deny when uncertain).
+- **Sequencing:** the multi-agent build depends on the W2 LangChain v1.0 migration (Item 5) + adding `langgraph` — a W3 deliverable on that foundation, not built ahead of it.
 - Authorization-gate primitives + how a paused authorization is persisted across a multi-day delay.
 - How far correlation/tracing is threaded in Phase 1 vs. deferred to Phase 2.
 - Which inherited/unique debt items are in-bounds to close incidentally vs. strictly deferred.
@@ -211,3 +233,4 @@ client deliverability. A dedicated Phase 2 PRD supersedes this section.
 | Date | Change | Driver |
 |------|--------|--------|
 | 2026-05-28 | Initial Phase 1 PRD disseminated from sponsor objective (brief altitude). | Phase 1 kickoff |
+| 2026-05-28 | Agent shape revised single → multi-agent: M3 becomes anomaly-detector + adjudicator + decision-router with auto-approve / HITL-escalate / return lanes (REQ-AGT-6 + bounded-autonomy principle). Build sequenced after the W2 v1.0 migration. | Stakeholder direction |

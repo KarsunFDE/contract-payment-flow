@@ -17,7 +17,7 @@
 | Corpus | FAR Part 42 (Contract Administration) + FAR Part 43 (Contract Modifications) + FAR Part 32 (Contract Financing) |
 | Corpus dir | `data/seed/far-part-42-43-32/` |
 | Vector index | `far_post_award` (collection `COLLECTION_FAR_POST_AWARD`) |
-| Agent shape | single-agent (LLM-assisted modification-rationale drafting; single-agent invoice-review assistant) |
+| Agent shape | multi-agent — anomaly-detector + adjudicator + decision-router (auto-approve / HITL-escalate / return). Revised 2026-05-28; see `docs/adrs/0001-post-award-contract-administration-commitment.md` Update. |
 | Extra service | `closeout-service` (not scaffolded — pair adds W2/W3; long retention, audit-heavy) |
 | Key stakeholders | Contracting Officer's Representative (COR), Contracting Officer (CO), Vendor program manager, DCAA auditor |
 | FedRAMP target | MOD (long-retention + DCAA audit posture) |

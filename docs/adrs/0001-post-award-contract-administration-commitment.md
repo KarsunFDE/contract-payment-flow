@@ -42,7 +42,7 @@ The commitment binds:
 | Workflow | modification-request → performance-monitoring → invoice-processing → closeout |
 | Regulatory anchors | FAR Part 42, FAR Part 43, FAR Part 32 |
 | Key stakeholders | COR, CO, vendor program manager, DCAA auditor |
-| Agent shape | single-agent (per `karsun-domain-aspects.yml`) |
+| Agent shape | multi-agent — anomaly-detector + adjudicator + decision-router (auto-approve / HITL-escalate / return); revised 2026-05-28, see Update below |
 | Modernization integration target | legacy PL/SQL invoice-processing migration |
 
 ## Distinctness from `acquire-gov` training-project
@@ -66,6 +66,30 @@ but the Pair 2 work anchors specifically on the post-award half:
   what's the runbook?").
 - W6 Final Defense uses this aspect's stakeholder vocabulary (CO/COR/DCAA, not
   PI/peer-reviewer or FOIA-officer).
+
+## Update 2026-05-28 — agent shape revised to multi-agent
+
+Superseding the original single-agent shape: Phase 1's M3 becomes a **multi-agent
+decision-routing flow** — an anomaly-detector + an adjudicator (challenger, tests
+each flag against the governing FAR clause + precedent) + a decision-router that
+sorts each modification/invoice into **auto-approve**, **HITL-escalate**, or
+**return/route** lanes.
+
+- **Rationale.** Invoice + modification adjudication is a genuine proposer/challenger
+  problem, and the DCAA batch-review scenario is a natural supervisor-worker fan-out
+  — so multi-agent here is legitimate, not a forced second role. The explicit
+  auto-approve vs. escalate routing is the bounded autonomy the engagement wants.
+- **Hard bound.** Reserved (FAR 43.102 — only the CO executes mods) and irreversible
+  (payment certification) steps are **never** auto-approved regardless of model
+  confidence. Auto-approval is limited to reversible, within-delegated-authority,
+  under-threshold, anomaly-free items, all audited; uncertainty defaults to escalate.
+- **Sequencing.** Depends on the W2 LangChain v1.0 migration (Item 5) + adding
+  `langgraph`; built in W3, not ahead of it.
+- **Consequence.** Cohort #1's deliberate single/multi agent-shape spread is dropped
+  — all three pairs are now multi-agent. Accepted per stakeholder direction; the
+  W4 Mon equivalence audit still governs scope balance.
+
+`domain-mapping.md` + `docs/prd/phase-1-ai-adoption.md` updated to match.
 
 ## Related
 
