@@ -8,3 +8,17 @@ HITL check
 4 Price cost
 	Sonnet 4.6
 HITL check
+
+Guidelines
+1.We only need a simple, nothing grounded in truth just yet, draft solicitation to prove a concept of AI draftability for these soliciations.
+2.As we plan, we need to assure we have testing in place to verify, before we EVER hit the actual AWS Bedrock endpoint, we need to have passing tests to assure us of our retry policies. NEVER try to hit the AWS Bedrock endpoint, we will explicitly tell you once we've loaded that .env with our bearer token for bedrock.
+3.We are generating a planning spec with in our @docs/adrs
+4.Think & ask questions of me that we may not have considered with this requirement.
+
+Considerations we've discussed:
+<team-considerations>What model? Use sonnet and haiku
+  Provider? AWS Bedrock for model transference & gov FedRAMP
+  Streaming for all draft knowledge to resiliency
+  Do we always retry? Max retrys 4, exponential backoff with 20% jitter
+  API_KEY request limits? Consider how we handle a user base that scales to 10,000 users with our single api_key Do we need more?
+  Outstanding Issues?</team-considerations>
