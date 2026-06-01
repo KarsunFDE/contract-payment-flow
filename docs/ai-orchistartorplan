@@ -12,7 +12,10 @@ Guidelines
 5.All actions are verified by a human after each step so do not worry about model gating by risk, but by minimizing cost while maintianing functionality. HITL is required for compliance and auditing, but everythingelse should be cost minimizing
 6. All AI-drafted rationales must cite a real FAR Part 42, 43, or 32 clause retrieved from the corpus (REQ-RAG-1, G2). If grounding confidence falls below threshold, the output is withheld and escalated to a human — never shipped. The system must never auto-generate a FAR citation it cannot trace to a real retrieved source.
 7. Audit log must be append-only. Each entry captures: input payload, model ID + version, retrieved FAR clauses + excerpts, citations used, CO identity + role + timestamp + decision. The inherited audit-log race bug (pair-unique-debt.md) must not be replicated in the AI path.
-8. Rag threshould .85, max retrys 4, exponential backoff jitter 20%, on failure leave form blank and giv user a error message
+8. RAG threshold .85, max retries 4, exponential backoff jitter 20%. On failure: enter RAG_FAILED_AWAITING_CO_REVIEW gate state — surface failure reason, retry history, and query metadata to CO for human review. Never silently leave the form blank with only an error message; that path bypasses HITL and produces no audit record.
+9. Streaming: never emit model tokens to the client before grounding is complete. Enforced pipeline: retrieve → confidence-check → citation-check → threshold → THEN stream the validated draft package. Ungrounded tokens must never reach the wire.
+10. State order is a hard rule, not a convention: CO input → retrieve → validate → draft → grounded package → CO gate. Gate entry is blocked unless grounding metadata has passed threshold. The gate UI must show retrieved FAR clause IDs, excerpts, citation mapping, confidence score, and model ID + version before the CO can take any approval action.
+11. CO reject or edit invalidates prior retrieval entirely. Re-run RAG against the corrected SF-30 scope; mark prior grounding records as superseded and non-reusable in the audit log. The new run starts fresh — no stale retrieval can carry forward.
 
 
 Considerations we've discussed:
