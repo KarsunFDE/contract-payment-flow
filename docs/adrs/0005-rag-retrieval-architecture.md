@@ -42,7 +42,7 @@ Current state:
 - Do not use the LCEL `|` pipe operator for orchestration — use LangGraph nodes
 - Do not use `create_retrieval_chain` or `create_stuff_documents_chain` — LCEL-based, not our pattern
 
-**LangGraph pipeline state schema:** The pipeline maintains a typed state dictionary with fields for: `query`, `sf30_block`, `tenant_id`, `documents` (retrieved chunks), `confidence` (float), `draft` (generated text), and `gate_status` (`pending` | `passed` | `RAG_FAILED_AWAITING_CO_REVIEW`). Each LangGraph node reads from and writes to this state. State schema must use `TypedDict` format (required by LangGraph v1.0).
+**LangGraph pipeline state schema:** The pipeline maintains a typed state dictionary with fields for: `query`, `sf30_block`, `tenant_id`, `documents` (retrieved chunks), `confidence` (float), `draft` (generated text), and `gate_status` (`pending` | `passed` | `RAG_FAILED_AWAITING_CO_REVIEW` | `FAITHFULNESS_FAILED_AWAITING_CO_REVIEW`). Each LangGraph node reads from and writes to this state. State schema must use `TypedDict` format (required by LangGraph v1.0).
 
 ---
 
@@ -84,7 +84,7 @@ Model ID: `amazon.titan-embed-text-v2:0`
 | FedRAMP coverage | In-scope within AWS GovCloud | In-scope within AWS GovCloud | Tie |
 | FAR doc suitability | Long contract text fits in 8k window | Contract clauses get truncated at 512 tokens | **Titan wins** |
 
-**FAR Part 42/43/32 clauses regularly exceed 512 tokens.** Cohere's 512-token limit would truncate critical clause text. Titan V2's 8,192-token window embeds full clauses without truncation.
+**FAR Part 42/43/32/52 and DFARS 242/243/232 clauses regularly exceed 512 tokens.** Cohere's 512-token limit would truncate critical clause text. Titan V2's 8,192-token window embeds full clauses without truncation.
 
 **Configured dimensions: 512** (not 1,024) — reduces MongoDB storage and `$vectorSearch` latency with minimal recall degradation for English legal text.
 
@@ -115,7 +115,7 @@ SF-30 post-award (Blocks 1–16C) has distinct data-needs per block. Not every b
 | 10B | Dated | Contract record | Structured DB query |
 | 11 | Modification type (A–E per FAR 43.103) | FAR 43.103 definitions | **Dense retrieval** — semantic match to modification type |
 | 12 | Accounting and Appropriation Data | Financial records | Structured DB query |
-| **13** | **Description of Modification/Rationale** | **FAR Part 42/43/32 corpus** | **Hybrid retrieval (dense + sparse) + re-rank** |
+| **13** | **Description of Modification/Rationale** | **FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE corpus** | **Hybrid retrieval (dense + sparse) + re-rank** |
 | 14 | Contractor Signer Name/Title | Input / contract record | Not AI-generated |
 | 15 | Contractor Signature | CO UI action | Not AI-generated |
 | 16A | Contracting Officer Name/Title | CO identity from auth | Not AI-generated |
@@ -125,9 +125,10 @@ SF-30 post-award (Blocks 1–16C) has distinct data-needs per block. Not every b
 
 **Block 13 pipeline (LangGraph nodes):**
 
-1. `retrieve_node` — runs two parallel searches against the FAR corpus: dense `$vectorSearch` via Titan V2 (k=20) and sparse `$search` BM25 (k=20). Results are merged using Reciprocal Rank Fusion (RRF) with weights 0.6 dense / 0.4 sparse to produce a combined candidate set. Cross-encoder re-ranking then narrows to the top 8 chunks, stored in `state["documents"]`.
+1. `retrieve_node` — runs two parallel searches against the FAR/DFARS, WAWF/PIEE corpus: dense `$vectorSearch` via Titan V2 (k=20) and sparse `$search` BM25 (k=20). Results are merged using Reciprocal Rank Fusion (RRF) with weights 0.6 dense / 0.4 sparse to produce a combined candidate set. Cross-encoder re-ranking then narrows to the top 8 chunks, stored in `state["documents"]`.
 2. `confidence_check_node` — Haiku acts as LLM-as-judge, scoring each retrieved chunk 0.0–1.0 for relevance to the CO's modification query. Scores aggregate to `state["confidence"]`. Gate: score ≥ 0.85 → proceed to draft; score < 0.85 → `gate_status = "RAG_FAILED_AWAITING_CO_REVIEW"`.
 3. `draft_node` — Haiku generates Block 13 draft text grounded in `state["documents"]`. Only reached if confidence gate passed.
+4. `faithfulness_gate_node` — RAGAS faithfulness judge (Claude Haiku, `temperature=0`) scores `state["draft"]` against `state["documents"]`. Score < 0.85 → `gate_status = "FAITHFULNESS_FAILED_AWAITING_CO_REVIEW"`, surface to CO: faithfulness score, which retrieved chunks the draft diverged from, and the full draft text. Score ≥ 0.85 → `gate_status = "passed"`. This gate catches post-retrieval hallucination — fabricated FAR citations not present in the retrieved chunks — which the `confidence_check_node` cannot detect.
 
 **Block 11 pipeline (LangGraph node):**
 
@@ -165,14 +166,14 @@ Post-award contract data is Sensitive but Unclassified (SBU) under FAR 4.4 / NAR
 - Bedrock: data in transit is encrypted by AWS (TLS 1.2+)
 
 **Access control:**
-- MongoDB RBAC: AI Orchestrator has a dedicated MongoDB user with read-only access to the FAR corpus collection and read-write on the audit log collection
+- MongoDB RBAC: AI Orchestrator has a dedicated MongoDB user with read-only access to the FAR/DFARS, WAWF/PIEE corpus collection and read-write on the audit log collection
 - No CO or end-user has direct MongoDB access
 - Bedrock: IAM role scoped to `bedrock:InvokeModel` on `amazon.titan-embed-text-v2:0` and Claude models only
 
 **Embeddings and PII:**
 - Do NOT embed Personally Identifiable Information (contractor EIN, individual names, addresses)
 - PII fields (Block 8: contractor name/address) are stored as plaintext metadata in MongoDB — never vectorized
-- FAR corpus chunks only — no contract-instance data goes into the vector index
+- FAR/DFARS, WAWF/PIEE corpus chunks only — no contract-instance data goes into the vector index
 
 **Tenant isolation (see Section 11):**
 - All vector queries include mandatory `tenant_id` pre-filter — no cross-contract leakage
@@ -215,9 +216,16 @@ RAGAS is an evaluation framework for RAG pipelines that uses LLM-as-a-judge to s
 | **Context Precision** | Were the retrieved chunks actually relevant? (retrieval precision) |
 | **Context Recall** | Were all necessary FAR clauses retrieved? (retrieval recall) |
 
-Run RAGAS evaluation:
+**Faithfulness is the primary quality gate.** A faithfulness score < 0.85 triggers CO escalation via `gate_status = "FAITHFULNESS_FAILED_AWAITING_CO_REVIEW"` (inline, enforced by `faithfulness_gate_node` in the LangGraph pipeline). Faithfulness is also the named regression signal for CI.
+
+**CI regression gate (blocks merge):** On any PR touching `retrieve_node`, `draft_node`, prompt templates, or the embedding pipeline — run RAGAS faithfulness against the golden set. If `faithfulness_score < baseline_faithfulness × 0.95` (relative 5% drop), CI fails and the PR is blocked. Baseline is stored in `eval/faithfulness_baseline.json` in the repo root and updated manually after intentional quality improvements.
+
+- **Golden set:** 10 Block 13 samples minimum (query + ground-truth FAR citations + expected draft), stored in `eval/golden_set.json`. RAGAS judge must run at `temperature=0` for CI determinism — nondeterministic judge runs cause false-positive CI failures.
+- **CI scope:** PRs not touching the above files skip the faithfulness regression gate.
+
+Run full RAGAS evaluation (all four metrics):
 - On every corpus update (new FAR version ingested)
-- Weekly against a curated golden set of SF-30 Block 13 completions
+- Weekly against the golden set — updates `eval/faithfulness_baseline.json` if faithfulness improves
 
 **LLM-as-a-Judge for Retrieval (inline, on every request):**
 
@@ -237,6 +245,7 @@ This is the `confidence_check_node` described in Section 4. Haiku scores each re
 | Retrieval without re-ranking | Top-k by cosine distance ≠ top-k by relevance | Cross-encoder re-ranking inside `retrieve_node` on every Block 13 query |
 | Treating all SF-30 blocks as RAG | Wastes Bedrock calls on fields that are direct DB lookups | Block-routing table (Section 4) |
 | Single retrieval strategy for all queries | FAR clause numbers need keyword match; modification rationale needs semantic match | Hybrid dense + sparse with RRF fusion |
+| No faithfulness gate | Confidence gate checks retrieval quality, not generation quality — LLM can hallucinate FAR citations not present in retrieved chunks while still passing the 0.85 confidence gate | `faithfulness_gate_node` after `draft_node`; CI regression block on golden set |
 | Synchronous ingestion during CO request | Blocks the pipeline during embedding | Ingestion is offline/async; corpus indexed at startup and on FAR updates only |
 | No fallback on vector search failure | Total outage if `mongot` crashes | Fallback to BM25-only `$search` on `$vectorSearch` failure |
 | LCEL chains or Runnables for orchestration | Unsupported pattern in v1.0, removed at v2.0 | CI import linter bans LCEL orchestration patterns and `langchain-classic` |
@@ -284,6 +293,7 @@ All failure handling is aligned with ADR-0004 retry policy: max 4 retries, expon
 | `$vectorSearch` failure | `OperationFailure` from pymongo | Fallback: run BM25-only `$search`. Log fallback in audit record. Do not fail silently. |
 | MongoDB connection failure | `ConnectionFailure` | Circuit breaker (3 consecutive failures → open). Surface error to CO with audit record. |
 | Confidence below 0.85 | Score check in `confidence_check_node` | Enter `RAG_FAILED_AWAITING_CO_REVIEW`. Surface: failure reason, retry count, query metadata, retrieved chunks. Never leave form blank. |
+| Faithfulness below 0.85 | RAGAS judge score in `faithfulness_gate_node` | Enter `FAITHFULNESS_FAILED_AWAITING_CO_REVIEW`. Surface: faithfulness score, which retrieved chunks the draft diverged from, full draft text. CO decides: retry, edit draft manually, or escalate. |
 | Partial retrieval (< 3 chunks) | Chunk count check | Log warning. Below 3 chunks: treat as confidence failure → escalate. |
 | Embedding failure | Exception in `BedrockEmbeddings` | Do not proceed to draft. Queue retry. Audit record must capture the failure. |
 | Re-ranker failure | Exception in `CrossEncoderReranker` | Fallback to unranked top-k from the fused results. Log degraded mode in audit record. |
@@ -295,11 +305,11 @@ All failure handling is aligned with ADR-0004 retry policy: max 4 retries, expon
 
 ### 11. Multi-Tenant Retrieval
 
-**The vector store contains only FAR Part 42/43/32 documents — all public law, no contract-instance data.** There is no per-contract or per-agency isolation required in the vector index.
+**The vector store contains only FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE documents — all public law, no contract-instance data.** There is no per-contract or per-agency isolation required in the vector index.
 
-Every CO queries the same shared FAR corpus. Isolation is applied at the audit log level, not the retrieval level.
+Every CO queries the same shared FAR/DFARS, WAWF/PIEE corpus. Isolation is applied at the audit log level, not the retrieval level.
 
-**Vector store:** No `tenant_id` filter on vector queries. All indexed documents are global FAR corpus. No per-contract documents enter the vector index.
+**Vector store:** No `tenant_id` filter on vector queries. All indexed documents are global FAR/DFARS, WAWF/PIEE corpus. No per-contract documents enter the vector index.
 
 **Audit log isolation:** Every retrieval log is scoped to `user_id` + `contract_id` (the contract the CO is modifying). A CO cannot view another CO's retrieval audit records. This is enforced at the audit log query layer via the existing auth/RBAC controls, not inside the vector search.
 
@@ -329,7 +339,7 @@ Every CO queries the same shared FAR corpus. Isolation is applied at the audit l
 | `embedding_model` | string | Bedrock model ID used to generate the embedding |
 | `embedding_dimensions` | integer | Dimension count of the stored vector |
 | `embedding_model_version` | string | Short version tag (e.g., `v2`) |
-| `tenant_id` | string | Namespace — `far_corpus_global` for FAR documents |
+| `tenant_id` | string | Namespace — `far_corpus_global` for FAR/DFARS, WAWF/PIEE documents |
 | `embedding` | float array | The vector representation |
 
 **Every retrieval operation logs to the audit collection.** Required fields per retrieval log:
@@ -354,13 +364,13 @@ Every CO queries the same shared FAR corpus. Isolation is applied at the audit l
 | `cache_hit` | boolean | Whether embedding was served from cache |
 | `latency_ms` | integer | Total retrieval latency in milliseconds |
 
-This is the "who done it and how it was constructed" trail for every retrieval event.
+This is the "who done it and how it was constructed" trail for every retrieval event. Audit records must satisfy DCAA traceability requirements for government contract data.
 
 ---
 
 ### 13. Chunking Strategy
 
-**FAR Part 42/43/32 document structure** is hierarchical: Part → Subpart → Section → Clause. For example: FAR Part 43 → Subpart 43.1 (General) → 43.103 (Types of contract modifications). Chunks must respect this structure.
+**FAR Part 42/43/32/52 / DFARS 242/243/232 / WAWF / PIEE document structure** is hierarchical: Part → Subpart → Section → Clause. For example: FAR Part 43 → Subpart 43.1 (General) → 43.103 (Types of contract modifications). Chunks must respect this structure.
 
 **Decision: Section-boundary chunking using `RecursiveCharacterTextSplitter` from `langchain-text-splitters`**
 
@@ -403,8 +413,8 @@ HITL (Human-in-the-Loop) is a hard compliance requirement per ADR-0004. The RAG 
 
 | Stage | HITL Trigger | Human Action Required |
 |---|---|---|
-| **Corpus ingestion** | New FAR version or corpus update | CO reviews and approves new FAR document batch before ingestion to vector store (CO is the only role in the system) |
-| **Retrieval review** | CO gate UI (pre-approval) | CO sees retrieved FAR clause IDs, excerpts, and citation mapping before approving the draft |
+| **Corpus ingestion** | New FAR/DFARS/WAWF/PIEE version or corpus update | CO reviews and approves new FAR/DFARS/WAWF/PIEE document batch before ingestion to vector store (CO is the only role in the system) |
+| **Retrieval review** | CO gate UI (pre-approval) | CO sees retrieved FAR/DFARS clause IDs, excerpts, and citation mapping before approving the draft |
 | **Confidence failure** | Score < 0.85 | CO sees failure reason, retry history, retrieved chunks. CO decides: retry with modified query, escalate, or complete manually |
 | **CO rejection/edit** | CO rejects AI draft | RAG re-runs from scratch against corrected SF-30 scope. Prior retrieval marked superseded. |
 | **Superseded retrieval** | After any CO rejection | Prior retrieval records are non-reusable; audit log captures supersession event |
@@ -421,12 +431,12 @@ Established tools we use — no custom implementation needed for any of these:
 |---|---|---|
 | `StateGraph` | `langgraph` | **Primary orchestration** — all pipeline nodes and state transitions |
 | `create_agent` | `langchain` | Agent harness (built on LangGraph) |
-| `MongoDBAtlasVectorSearch` | `langchain-mongodb` | Vector store for FAR corpus; called directly inside LangGraph nodes |
+| `MongoDBAtlasVectorSearch` | `langchain-mongodb` | Vector store for FAR/DFARS, WAWF/PIEE corpus; called directly inside LangGraph nodes |
 | `BedrockEmbeddings` | `langchain-aws` | Titan V2 embeddings via Bedrock |
 | `ChatBedrock` | `langchain-aws` | Claude Haiku/Sonnet invocation inside LangGraph nodes |
 | `BM25Retriever` | `langchain-community` | Sparse retrieval for hybrid search (keyword/clause number match) |
 | `CrossEncoderReranker` | `langchain-community` | Local cross-encoder re-ranking inside `retrieve_node` |
-| `RecursiveCharacterTextSplitter` | `langchain-text-splitters` | FAR document chunking (offline ingestion pipeline) |
+| `RecursiveCharacterTextSplitter` | `langchain-text-splitters` | FAR/DFARS/WAWF/PIEE document chunking (offline ingestion pipeline) |
 | `CacheBackedEmbeddings` | `langchain-community` | Embedding cache (avoids re-embedding identical text) |
 | `BaseRetriever`, `Document` | `langchain-core` | Type contracts used inside LangGraph node signatures |
 
@@ -469,7 +479,7 @@ Established tools we use — no custom implementation needed for any of these:
 ### Step 4: Embedding Pipeline
 
 1. Create the `far_corpus` collection in Atlas Local
-2. Load FAR Part 42/43/32 source documents
+2. Load FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE source documents
 3. Chunk with `RecursiveCharacterTextSplitter` (512 tokens, 64 overlap)
 4. Embed with Titan V2 via Bedrock — **team must explicitly load the `.env` bearer token before this step**
 5. Insert all chunks with full provenance metadata
@@ -483,7 +493,7 @@ Established tools we use — no custom implementation needed for any of these:
 ### Step 6: Verify and Go Live
 
 1. Execute at least 10 representative Block 13 queries covering different modification types
-2. Verify retrieved chunks include correct FAR clause citations with provenance metadata
+2. Verify retrieved chunks include correct FAR/DFARS clause citations with provenance metadata
 3. Confirm confidence scores meet the 0.85 threshold on the golden test set
 4. Verify all Spring Boot services operate normally (CRUD, existing seed data accessible)
 
@@ -504,6 +514,8 @@ Established tools we use — no custom implementation needed for any of these:
 - Corpus admin role must be defined in auth before corpus ingestion can begin (HITL gate requirement)
 - Any `from langchain_classic import` anywhere in the codebase fails CI — linter rule required
 - Block 13 retrieval adds ~300–500ms latency per CO query (embedding + vector search + re-rank) — within acceptable UX range; baseline in LangFuse from day one
+- CI faithfulness regression gate requires Bedrock access in the CI environment and `eval/faithfulness_baseline.json` committed to the repo root
+- `eval/golden_set.json` (10+ Block 13 samples) must be created and committed before the CI gate is enforced — gate is warn-only until golden set exists
 
 ---
 

@@ -25,7 +25,7 @@ through W6 Thu (Final Defense, Cohort #1 = Thu 2 Jul per holiday compression).
 The commitment binds:
 
 - Phase 1 (W1 Thu → W3 Fri): AI Adoption into the renamed brownfield —
-  LLM-assisted modification-rationale drafting, RAG over FAR Part 42/43/32
+  LLM-assisted modification-rationale drafting, RAG over FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE
   + prior contract modifications for precedent surfacing, single-agent
   invoice-review assistant flagging anomalies.
 - Phase 2 (W4 → W6): Modernization driven by Phase-1 discoveries —
@@ -40,7 +40,7 @@ The commitment binds:
 |-------|-------|
 | Primary entity | `ContractModification` |
 | Workflow | modification-request → performance-monitoring → invoice-processing → closeout |
-| Regulatory anchors | FAR Part 42, FAR Part 43, FAR Part 32 |
+| Regulatory anchors | FAR Part 42/43/32/52, DFARS 242/243/232, WAWF, PIEE, DCAA |
 | Key stakeholders | COR, CO, vendor program manager, DCAA auditor |
 | Agent shape | multi-agent — anomaly-detector + adjudicator + decision-router (auto-approve / HITL-escalate / return); revised 2026-05-28, see Update below |
 | Modernization integration target | legacy PL/SQL invoice-processing migration |
