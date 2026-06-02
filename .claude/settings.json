@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".claude/hooks/block-env-files.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
