@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# pre-push: blocks pushes that contain .env files or hardcoded secrets
+set -euo pipefail
+
+RED='\033[0;31m'
+YLW='\033[0;33m'
+NC='\033[0m'
+
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+SECRET_PATTERNS=(
+    # Private keys
+    '-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY'
+    # AWS access keys
+    'AKIA[0-9A-Z]{16}'
+    # Generic secret assignments (key=value where value is non-trivial)
+    '(password|passwd|pwd|secret|api_key|apikey|api_token|auth_token|access_token|client_secret|private_key)\s*[=:]\s*['"'"'"][^'"'"'"${}]{8,}['"'"'"]'
+    # DB connection strings with embedded credentials
+    '(mysql|postgresql|postgres|mongodb|redis|amqp|smtp)://[^:]+:[^@]{3,}@'
+    # JWT tokens
+    'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+)
+
+found=0
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip branch deletions
+    [[ "$local_sha" == "0000000000000000000000000000000000000000" ]] && continue
+
+    if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+        range="${EMPTY_TREE}..${local_sha}"
+    else
+        range="${remote_sha}..${local_sha}"
+    fi
+
+    # Block .env files (anything matching .env, .env.local, .env.production, etc. — NOT .env.example)
+    env_files=$(git diff --name-only "$range" 2>/dev/null \
+        | grep -E '(^|/)(\.env|\.env\.(local|production|staging|development|test|prod|dev))$' \
+        || true)
+
+    if [[ -n "$env_files" ]]; then
+        echo -e "${RED}[pre-push] BLOCKED: .env file(s) staged for push:${NC}"
+        echo "$env_files" | sed 's/^/  /'
+        found=1
+    fi
+
+    # Scan diff for secret patterns (only added lines, skip .env.example)
+    diff_output=$(git diff "$range" -- \
+        ':!.env.example' \
+        2>/dev/null || true)
+
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+        matches=$(echo "$diff_output" | grep -E "^\+" | grep -E "$pattern" || true)
+        if [[ -n "$matches" ]]; then
+            echo -e "${RED}[pre-push] BLOCKED: Potential hardcoded secret detected:${NC}"
+            echo -e "${YLW}  Pattern: $pattern${NC}"
+            echo "$matches" | head -5 | sed 's/^/  /'
+            found=1
+        fi
+    done
+done
+
+if [[ "$found" -ne 0 ]]; then
+    echo -e "${RED}[pre-push] Push rejected. Remove secrets/env files and retry.${NC}"
+    exit 1
+fi
+
+exit 0
