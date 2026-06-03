@@ -59,6 +59,12 @@ from app import legacy_chain  # noqa: F401 — imported to keep the v0.x entry
                                 # point reachable; cohort grep finds the seam.
 from app.bedrock_client import invoke_model, BEDROCK_MODEL_ID, AWS_REGION
 
+# ADR-0005 Phase 1 routers — Day 0 scaffolding. Ingestion (write path) and
+# retrieval (read path) are owned separately; this file stays frozen so the
+# two owners never touch it concurrently.
+from app.ingestion.router import router as ingestion_router
+from app.retrieval.router import router as retrieval_router
+
 # ⚠ DELIBERATE — no correlation-ID in the log format (Item 6).
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +73,11 @@ logging.basicConfig(
 log = logging.getLogger("ai-orchestrator")
 
 app = FastAPI(title="ai-orchestrator", version="0.1.0-brownfield")
+
+# ADR-0005 Phase 1 — both routers registered Day 0 so neither owner edits
+# main.py again this week.
+app.include_router(ingestion_router)
+app.include_router(retrieval_router)
 
 
 class DraftRequest(BaseModel):
