@@ -2,8 +2,10 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CorpusService } from '../../services/corpus.service';
+import { RoleService } from '../../services/role.service';
 import {
   CorpusDocumentMetadata,
+  CorpusIngestRequest,
   CorpusUploadResponse,
 } from '../../models/corpus';
 
@@ -102,7 +104,10 @@ export class CorpusUploadComponent {
   errorMessage = '';
   ingestSummary = '';
 
-  constructor(private corpusService: CorpusService) {}
+  constructor(
+    private corpusService: CorpusService,
+    private roleService: RoleService,
+  ) {}
 
   /** Capture the file selection from the input element. */
   onFileSelected(event: Event): void {
@@ -112,16 +117,49 @@ export class CorpusUploadComponent {
 
   /** Step 1 — upload the file + metadata, add result to the staged table. */
   stageDocument(): void {
-    // TODO(A): validate metadata (title + far_part required), call
-    //   corpusService.uploadDocument(), push response onto stagedDocuments,
-    //   reset the form. Surface HTTP errors in errorMessage.
+    if (!this.selectedFile) return;
+    if (!this.metadata.title.trim() || !this.metadata.far_part.trim()) {
+      this.errorMessage = 'Title and FAR part are required.';
+      return;
+    }
+    this.errorMessage = '';
+    this.uploading = true;
+    this.corpusService.uploadDocument(this.selectedFile, this.metadata).subscribe({
+      next: (res) => {
+        this.stagedDocuments.push(res);
+        this.selectedFile = null;
+        this.metadata = { title: '', far_part: '' };
+        this.uploading = false;
+      },
+      error: (err) => {
+        this.errorMessage = err?.error?.detail ?? err?.message ?? 'Upload failed.';
+        this.uploading = false;
+      },
+    });
   }
 
   /** Step 2 — HITL approval: ingest every staged document. */
   approveIngestion(): void {
-    // TODO(A): build CorpusIngestRequest from stagedDocuments ids
-    //   (user_id from role service, tenant_id "far_corpus_global",
-    //   document_version = today), call corpusService.ingestDocuments(),
-    //   render chunk counts in ingestSummary, clear the staged table.
+    if (!this.stagedDocuments.length) return;
+    this.ingesting = true;
+    const request: CorpusIngestRequest = {
+      staged_document_ids: this.stagedDocuments.map((d) => d.staged_document_id),
+      user_id: this.roleService.current.role,
+      tenant_id: 'far_corpus_global',
+      document_version: new Date().toISOString().split('T')[0],
+    };
+    this.corpusService.ingestDocuments(request).subscribe({
+      next: (res) => {
+        this.ingestSummary =
+          `${res.documents_ingested} docs · ${res.chunks_inserted} chunks inserted` +
+          ` · ${res.chunks_discarded} discarded · ${res.cache_hits} cache hits`;
+        this.stagedDocuments = [];
+        this.ingesting = false;
+      },
+      error: (err) => {
+        this.errorMessage = err?.error?.detail ?? err?.message ?? 'Ingestion failed.';
+        this.ingesting = false;
+      },
+    });
   }
 }
