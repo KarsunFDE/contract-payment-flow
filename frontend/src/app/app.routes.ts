@@ -23,6 +23,7 @@ import { AdminUsersComponent } from './components/admin-users/admin-users.compon
 import { AdminConfigComponent } from './components/admin-config/admin-config.component';
 import { AuditSearchComponent } from './components/audit-search/audit-search.component';
 import { FindingsTrackerComponent } from './components/findings-tracker/findings-tracker.component';
+import { CorpusUploadComponent } from './components/corpus-upload/corpus-upload.component';
 import { roleGuard } from './services/role.guard';
 
 export const routes: Routes = [
@@ -117,6 +118,13 @@ export const routes: Routes = [
     canMatch: [roleGuard('contracting_officer', 'cor', 'program_manager', 'sys_admin', 'oig_reviewer')],
   },
   { path: 'contracts/:id/cpars', component: CparReviewComponent },
+
+  // — Retrieval corpus (ADR-0005 — CO-gated corpus ingestion, HITL §15)
+  {
+    path: 'corpus/upload',
+    component: CorpusUploadComponent,
+    canMatch: [roleGuard('contracting_officer', 'sys_admin')],
+  },
 
   // — Admin
   { path: 'admin/users', component: AdminUsersComponent, canMatch: [roleGuard('sys_admin')] },
