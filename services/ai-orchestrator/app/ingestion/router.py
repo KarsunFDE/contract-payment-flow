@@ -20,17 +20,24 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from app import config
+from app import config, db
 from app.ingestion import pipeline
 from app.schemas import IngestedBy, SourceDocument
 
 log = logging.getLogger("ai-orchestrator.ingestion.router")
 
 router = APIRouter(prefix="/corpus", tags=["corpus-ingestion"])
+
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_CONTENT_TYPES = {"text/markdown", "text/plain", "text/x-markdown"}
+_ALLOWED_EXTENSIONS = {".md", ".txt"}
 
 
 class UploadResponse(BaseModel):
@@ -60,7 +67,7 @@ class IngestResponse(BaseModel):
 @router.get("/_status")
 def status() -> dict[str, str]:
     """Day 0 wiring check — confirms the write-path router is mounted."""
-    return {"router": "corpus-ingestion", "status": "scaffolded"}
+    return {"router": "corpus-ingestion", "status": "ok"}
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -78,9 +85,43 @@ async def upload_corpus_document(
     SourceDocument metadata in a staging collection. Returns the staged
     ID the CO passes to /corpus/ingest after review.
     """
-    # TODO(A): reject non-md/txt content types; cap file size; insert into
-    #   a corpus_staging collection with status "staged_awaiting_ingest".
-    raise HTTPException(501, "upload not implemented yet — Person A W1")
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    ct = (file.content_type or "").lower().split(";")[0].strip()
+
+    if ct not in _ALLOWED_CONTENT_TYPES and ext not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            415,
+            f"Unsupported file type. Accept .md/.txt "
+            f"(got content-type={ct!r}, extension={ext!r})",
+        )
+
+    raw = await file.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"File exceeds {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(422, "File must be UTF-8 encoded text")
+
+    staged_id = str(uuid4())
+    staging_doc = {
+        "staged_document_id": staged_id,
+        "title": title,
+        "far_part": far_part,
+        "subpart": subpart,
+        "clause_number": clause_number,
+        "source_url": source_url,
+        "text": text,
+        "size_bytes": len(raw),
+        "status": "staged_awaiting_ingest",
+        "created_at": datetime.now(timezone.utc),
+    }
+    db.get_db()["corpus_staging"].insert_one(staging_doc)
+    log.info("staged %r as %s (%d bytes)", title, staged_id, len(raw))
+
+    return UploadResponse(staged_document_id=staged_id, title=title, size_bytes=len(raw))
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -91,10 +132,62 @@ def ingest_staged_documents(req: IngestRequest) -> IngestResponse:
     pipeline.ingest_document(), mark the staged doc consumed. Aggregates
     chunk counts across the batch.
     """
-    # TODO(A): load staged docs (404 on unknown ID), build IngestedBy from
-    #   req.user_id, call pipeline.ingest_document() per doc, write the
-    #   ingestion run record (pipeline.make_ingestion_run_record).
-    raise HTTPException(501, "ingest not implemented yet — Person A W1")
+    staging = db.get_db()["corpus_staging"]
+    started_at = datetime.now(timezone.utc)
+
+    totals: dict[str, int] = {
+        "documents_ingested": 0,
+        "chunks_inserted": 0,
+        "chunks_discarded": 0,
+        "cache_hits": 0,
+    }
+    per_doc_summaries: list[dict] = []
+
+    for sid in req.staged_document_ids:
+        staged = staging.find_one({"staged_document_id": sid})
+        if staged is None:
+            raise HTTPException(404, f"staged_document_id {sid!r} not found")
+        if staged.get("status") != "staged_awaiting_ingest":
+            raise HTTPException(
+                409, f"Document {sid!r} already consumed (status={staged.get('status')!r})"
+            )
+
+        source = SourceDocument(
+            title=staged["title"],
+            far_part=staged["far_part"],
+            subpart=staged.get("subpart", ""),
+            clause_number=staged.get("clause_number", ""),
+            url=staged.get("source_url", ""),
+        )
+        ingested_by = IngestedBy(user_id=req.user_id)
+
+        summary = pipeline.ingest_document(
+            document_text=staged["text"],
+            source=source,
+            document_version=req.document_version,
+            ingested_by=ingested_by,
+            tenant_id=req.tenant_id,
+        )
+
+        staging.update_one(
+            {"staged_document_id": sid},
+            {"$set": {"status": "consumed", "consumed_at": datetime.now(timezone.utc)}},
+        )
+
+        totals["documents_ingested"] += 1
+        totals["chunks_inserted"] += summary.get("chunks_inserted", 0)
+        totals["chunks_discarded"] += summary.get("chunks_discarded", 0)
+        totals["cache_hits"] += summary.get("cache_hits", 0)
+        per_doc_summaries.append(summary)
+        log.info("ingested staged doc %r — %d chunks", sid, summary.get("chunks_inserted", 0))
+
+    run_record = pipeline.make_ingestion_run_record(
+        summary={"per_document": per_doc_summaries, **totals},
+        started_at=started_at,
+    )
+    db.get_retrieval_audit().insert_one(run_record)
+
+    return IngestResponse(**totals)
 
 
 @router.get("/stats")
@@ -104,6 +197,34 @@ def corpus_stats() -> dict:
     Supports §9 routine monitoring (index size scale signal) and gives the
     frontend upload page something to display.
     """
-    # TODO(A): aggregate far_corpus: group by tenant_id + source_document.far_part;
-    #   distinct embedding_model_version.
-    raise HTTPException(501, "stats not implemented yet — Person A W1")
+    corpus = db.get_far_corpus()
+
+    agg = list(corpus.aggregate([
+        {
+            "$group": {
+                "_id": {
+                    "tenant_id": "$tenant_id",
+                    "far_part": "$source_document.far_part",
+                },
+                "chunk_count": {"$sum": 1},
+            }
+        },
+        {"$sort": {"_id.tenant_id": 1, "_id.far_part": 1}},
+    ]))
+
+    model_versions = corpus.distinct("embedding_model_version")
+
+    by_tenant_and_part = [
+        {
+            "tenant_id": r["_id"]["tenant_id"],
+            "far_part": r["_id"]["far_part"],
+            "chunk_count": r["chunk_count"],
+        }
+        for r in agg
+    ]
+
+    return {
+        "by_tenant_and_part": by_tenant_and_part,
+        "embedding_model_versions": model_versions,
+        "total_chunks": sum(r["chunk_count"] for r in agg),
+    }
