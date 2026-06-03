@@ -141,6 +141,13 @@ def main() -> int:
     """Create both indexes if absent, wait for READY, exit 0 on success / 1 on failure."""
     collection = db.get_far_corpus()
 
+    # createSearchIndexes fails with NamespaceNotFound on a brand-new database —
+    # ensure the collection exists first (no-op if it already does).
+    database = db.get_db()
+    if collection.name not in database.list_collection_names():
+        log.info("collection %r not found — creating it", collection.name)
+        database.create_collection(collection.name)
+
     # Check what already exists so re-runs are safe to call repeatedly.
     existing = existing_search_index_names(collection)
     log.info("existing search indexes: %s", sorted(existing))

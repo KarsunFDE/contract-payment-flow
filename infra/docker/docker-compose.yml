@@ -31,6 +31,11 @@ services:
 
   mongodb:
     image: mongodb/mongodb-atlas-local:8.0
+    # Stable hostname: atlas-local pins the single-node replica-set member to
+    # the container hostname at first init. Without this, any `up --build`
+    # recreate changes the hostname, the old member host no longer resolves,
+    # no primary is elected, and the atlas-local runner panics (exit 2).
+    hostname: mongodb
     environment:
       MONGODB_INITDB_ROOT_USERNAME: app
       MONGODB_INITDB_ROOT_PASSWORD: app_dev_password
