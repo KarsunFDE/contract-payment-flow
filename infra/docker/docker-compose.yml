@@ -38,7 +38,8 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db   # ← inconsistency vs postgres — teaching moment
+      - mongo-data:/data/db       # ← inconsistency vs postgres — teaching moment
+      - mongo-configdb:/data/configdb  # keyfile lives here; must persist across restarts
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
@@ -124,3 +125,4 @@ services:
 
 volumes:
   mongo-data:
+  mongo-configdb:
