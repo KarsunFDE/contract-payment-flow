@@ -14,7 +14,7 @@ Adopt a microservices architecture from Day 1:
 
 - **Angular SPA** at the edge (contracting-officer UX).
 - **API Gateway** (Spring Boot) for auth-edge + routing.
-- **ContractModification Service** (Spring Boot) for FAR/DFARS contract_modification lifecycle.
+- **ContractModification Service** (Spring Boot) for FAR/DFARS contract_modification and WAWF/PIEE invoice-payment lifecycle.
 - **InvoiceReview Service** (Spring Boot) for invoice_review-panel coordination.
 - **AI Orchestrator** (Python/FastAPI) for LLM/RAG/agent work — sits *behind* Spring Boot so the cohort sees realistic service-mesh patterns.
 

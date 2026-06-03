@@ -30,14 +30,20 @@ services:
     # Cohort fixes in W1 Tue inventory follow-up.
 
   mongodb:
-    image: mongo:7
+    image: mongodb/mongodb-atlas-local:8.0
     environment:
-      MONGO_INITDB_ROOT_USERNAME: app
-      MONGO_INITDB_ROOT_PASSWORD: app_dev_password
+      MONGODB_INITDB_ROOT_USERNAME: app
+      MONGODB_INITDB_ROOT_PASSWORD: app_dev_password
+      DO_NOT_TRACK: "1"
     ports:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db   # ← inconsistency vs postgres — teaching moment
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   api-gateway:
     build:
@@ -97,6 +103,9 @@ services:
       AWS_REGION: us-east-1
       BEDROCK_MODEL_ID: anthropic.claude-3-7-sonnet-20250219-v1:0
       MONGO_URL: mongodb://app:app_dev_password@mongodb:27017
+    depends_on:
+      mongodb:
+        condition: service_healthy
     # ⚠ DELIBERATE: no AWS creds wired — relies on shared dev IAM role being
     #   mounted via ~/.aws/credentials. The Bedrock stub returns mock data
     #   so it works without real creds. First-day learners discover this and

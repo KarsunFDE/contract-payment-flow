@@ -2,31 +2,37 @@
 #
 # ⚠ DELIBERATE BROWNFIELD DEBT:
 #   - Item 5 — legacy_chain.py uses pre-v1.0 LangChain LLMChain pattern;
-#     v1.0 composed-Runnable pattern lives in main.py. Cohort consolidates
-#     in W2.
-#   - Item 7 — pinecone-client listed below but no code imports it.
-#     Aspirational from a prior failed migration. Atlas Vector Search work
-#     in W2 replaces all vector work; cohort removes the dead import.
+#     v1.0 pattern lives in main.py. Cohort consolidates in W2.
 
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 
-# LangChain v1.0+ (composed-Runnable style); legacy LLMChain still available.
-langchain==0.3.7
-langchain-core==0.3.15
-langchain-aws==0.2.7
+# LangChain v1.x stack — ADR-0005
+# Orchestration (LangGraph StateGraph + create_agent)
+langchain==1.3.4
+langchain-core==1.4.0
+langgraph==1.2.4
+# Atlas Vector Search + hybrid retrieval
+langchain-mongodb==0.11.0
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+# Bedrock embeddings + Claude invocation
+langchain-aws==1.5.0
+# NOTE: langchain-classic is a transitive dep of langchain-mongodb and
+# langchain-community (langchain 1.x ecosystem). Do not import from it
+# directly — CI linter enforces this (see ADR-0005 §1 hard rules).
+
+# Cross-encoder reranker — model pre-downloaded at build time (see Dockerfile)
+sentence-transformers==5.5.1
 
 # Bedrock / AWS
-boto3==1.35.49
+boto3==1.42.42
 
-# Datastores / future RAG
-pymongo==4.10.1
+# Datastores
+pymongo==4.12.0
 
 # Schemas
-pydantic==2.9.2
-
-# ⚠ Item 7 — listed but never imported. Cohort removes in W2.
-pinecone-client==5.0.1
+pydantic==2.10.6
 
 # Form upload support for future endpoints
 python-multipart==0.0.12

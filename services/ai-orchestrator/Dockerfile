@@ -11,6 +11,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download cross-encoder model at build time — never pull at runtime (ADR-0005 §5)
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+
 COPY app ./app
 
 EXPOSE 8000

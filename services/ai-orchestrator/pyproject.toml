@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# TID251 — banned-api: fires on any import of a banned module or attribute
+select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# langchain-classic is unsupported in LangChain v1.0 (security patches only, removed at v2.0).
+# Use langgraph.graph.StateGraph for orchestration and langchain-core for base types.
+# See: docs/adrs/0005-rag-retrieval-architecture.md
+"langchain_classic" = {msg = "langchain-classic is banned (ADR-0005). Use langgraph.graph.StateGraph for orchestration; langchain-core for base types."}
