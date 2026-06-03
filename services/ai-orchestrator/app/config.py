@@ -72,3 +72,9 @@ MIN_RETRIEVED_CHUNKS = 3  # below this → treat as confidence failure (§10)
 # --- Retry policy (ADR-0005 §10, aligned with ADR-0004) ---
 MAX_RETRIES = 4
 RETRY_JITTER = 0.2  # 20% jitter on exponential backoff
+
+# --- Circuit breaker (ADR-0005 §10) ---
+# Seconds the breaker stays fully open before allowing a half-open probe request.
+CIRCUIT_BREAKER_RESET_SECONDS = float(
+    os.environ.get("CIRCUIT_BREAKER_RESET_SECONDS", "30")
+)

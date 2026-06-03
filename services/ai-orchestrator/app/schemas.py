@@ -78,7 +78,11 @@ class RetrievalAuditRecord(BaseModel):
     retrieval_strategy: str = Field(description='e.g. "hybrid_rrf_reranked"')
     chunks_retrieved: list[str] = Field(default_factory=list, description="chunk_id UUIDs")
     retrieval_scores: list[float] = Field(default_factory=list, description="Pre-rerank")
-    reranked_scores: list[float] = Field(default_factory=list, description="Post-rerank")
+    reranked_scores: list[float | None] = Field(
+        default_factory=list,
+        description="Post-rerank; None entries when the cross-encoder degraded "
+                    "(fallback returns fused-ordered chunks with no rerank score)",
+    )
     confidence: float | None = Field(
         default=None, description="LLM-as-judge aggregate (Phase 2 fills this)"
     )
