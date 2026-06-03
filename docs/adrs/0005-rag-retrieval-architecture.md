@@ -38,11 +38,20 @@ Current state:
 | `langgraph>=1.0` | **Primary orchestration** — all pipeline state (CO input → retrieve → validate → draft → gate) | `^1.0` |
 
 **Hard rules:**
-- Do not install `langchain-classic` — any import from it fails CI
+- Do not import from `langchain-classic` in application code — CI linter enforces this. It is installed as a transitive dependency of `langchain-mongodb` and `langchain-community` in the 1.x ecosystem and cannot be avoided; the enforcement is the import ban, not the installation.
 - Do not use the LCEL `|` pipe operator for orchestration — use LangGraph nodes
 - Do not use `create_retrieval_chain` or `create_stuff_documents_chain` — LCEL-based, not our pattern
 
-**LangGraph pipeline state schema:** The pipeline maintains a typed state dictionary with fields for: `query`, `sf30_block`, `tenant_id`, `documents` (retrieved chunks), `confidence` (float), `draft` (generated text), and `gate_status` (`pending` | `passed` | `RAG_FAILED_AWAITING_CO_REVIEW` | `FAITHFULNESS_FAILED_AWAITING_CO_REVIEW`). Each LangGraph node reads from and writes to this state. State schema must use `TypedDict` format (required by LangGraph v1.0).
+**LangGraph pipeline state schema:** The pipeline maintains a typed state dictionary with fields for: `correlation_id` (UUID, generated at request entry — threads through all nodes and all audit log entries for full request traceability), `query`, `sf30_block`, `tenant_id`, `documents` (retrieved chunks), `confidence` (float), `draft` (generated text), and `gate_status` (`pending` | `passed` | `RAG_FAILED_AWAITING_CO_REVIEW` | `FAITHFULNESS_FAILED_AWAITING_CO_REVIEW`). Each LangGraph node reads from and writes to this state. State schema must use `TypedDict` format (required by LangGraph v1.0).
+
+**Implementation phases:**
+
+| Phase | Week | Focus |
+|---|---|---|
+| Phase 1 | 2026-06-03 | Retrieval layer — `MongoDBAtlasVectorSearch`, `BedrockEmbeddings` (Titan V2), `$vectorSearch` + BM25 hybrid search, RRF fusion, `CrossEncoderReranker`. Structured JSON audit logs + `correlation_id`. No agent harness, no LangFuse this week. |
+| Phase 2 | 2026-06-10 | `create_agent` + `StateGraph` — full typed state machine wiring retrieval into all pipeline nodes and state transitions. LangFuse self-hosted service added to docker-compose. |
+
+Phase 1 delivers a working `retrieve_node` — embeddings, vector search, sparse search, RRF fusion, and cross-encoder reranking against the Atlas Local corpus — with every retrieval event written as a structured JSON audit record (including `correlation_id`) to the MongoDB audit collection. Phase 2 wraps that retrieval layer inside the full `StateGraph` state machine, wires in `confidence_check_node`, `draft_node`, and `faithfulness_gate_node`, and adds LangFuse for trace/span-level metrics.
 
 ---
 
@@ -187,23 +196,25 @@ Post-award contract data is Sensitive but Unclassified (SBU) under FAR 4.4 / NAR
 
 ### 7. RAG Observability
 
-**Decision: LangFuse (self-hosted) + structured JSON retrieval logs in MongoDB**
+**Decision: Structured JSON audit logs + `correlation_id` (Phase 1, 2026-06-03) + LangFuse self-hosted (Phase 2, deferred to 2026-06-10)**
 
-LangSmith requires a paid subscription — rejected on budget. LangFuse Community Edition is open-source, self-hosted, and integrates with LangGraph via a callback handler (`langfuse.callback.CallbackHandler`). LangFuse runs as an additional service inside Docker Compose and communicates on the internal Docker network only.
+LangSmith requires a paid subscription — rejected on budget. LangFuse Community Edition is open-source, self-hosted, and integrates with LangGraph via a callback handler (`langfuse.callback.CallbackHandler`). LangFuse is deferred to Phase 2. Phase 1 uses structured JSON audit records written to the MongoDB audit collection. Every audit record carries `correlation_id` — a UUID generated at CO request entry that threads through all pipeline node log entries, enabling full request traceability without LangFuse.
+
+Phase 2 adds LangFuse on top — all Phase 1 audit log metrics remain. The existing audit log metadata (chunks, scores, confidence, latency) is also passed to LangFuse and surfaces in the trace waterfall correlated by `correlation_id`. LangFuse adds span-level granularity for embedding and vector search latency, and Bedrock token tracking, which are not available from the audit log alone.
 
 **Metrics captured per retrieval request:**
 
-| Metric | Source |
-|---|---|
-| Query latency (total) | LangFuse trace |
-| Embedding latency | LangFuse span |
-| `$vectorSearch` latency | LangFuse span |
-| Chunks retrieved (count, IDs) | LangFuse metadata |
-| Re-rank scores | LangFuse metadata |
-| Confidence score | Custom ADR-0004 gate |
-| Cache hit/miss | Custom log |
-| Bedrock token usage | LangFuse + Bedrock SDK |
-| Model ID + version | LangFuse metadata |
+| Metric | Phase 1 (audit log) | Phase 2 (audit log + LangFuse) |
+|---|---|---|
+| Query latency (total) | Audit log (`latency_ms`) | Audit log + LangFuse trace |
+| Chunks retrieved (count, IDs) | Audit log | Audit log + LangFuse metadata |
+| Re-rank scores | Audit log | Audit log + LangFuse metadata |
+| Confidence score | Audit log | Audit log + LangFuse metadata |
+| Cache hit/miss | Audit log | Audit log + LangFuse metadata |
+| Model ID + version | Audit log | Audit log + LangFuse metadata |
+| Embedding latency | — | LangFuse span |
+| `$vectorSearch` latency | — | LangFuse span |
+| Bedrock token usage | — | LangFuse + Bedrock SDK |
 
 **RAGAS Evaluation (offline, not real-time):**
 
@@ -305,13 +316,18 @@ All failure handling is aligned with ADR-0004 retry policy: max 4 retries, expon
 
 ### 11. Multi-Tenant Retrieval
 
-**The vector store contains only FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE documents — all public law, no contract-instance data.** There is no per-contract or per-agency isolation required in the vector index.
+The corpus contains two document categories, distinguished by `tenant_id`:
 
-Every CO queries the same shared FAR/DFARS, WAWF/PIEE corpus. Isolation is applied at the audit log level, not the retrieval level.
+| Category | `tenant_id` value | Available to |
+|---|---|---|
+| Global corpus | `far_corpus_global` | All tenants — FAR/DFARS/WAWF/PIEE public law |
+| Tenant-scoped corpus | `<agency_id>` | That agency only — agency-specific supplemental guidance, DFARS supplements, agency SOPs |
 
-**Vector store:** No `tenant_id` filter on vector queries. All indexed documents are global FAR/DFARS, WAWF/PIEE corpus. No per-contract documents enter the vector index.
+**Vector store:** All vector queries (`$vectorSearch` and BM25 `$search`) must apply a mandatory `tenant_id` pre-filter inside `retrieve_node`. Filter returns documents where `tenant_id IN ["far_corpus_global", <requesting_agency_id>]`. This ensures tenants only retrieve documents available to them and cannot access another agency's tenant-scoped documents. Pre-filter is applied inside `retrieve_node` — not trusted from the application layer (per Section 6 security controls).
 
-**Audit log isolation:** Every retrieval log is scoped to `user_id` + `contract_id` (the contract the CO is modifying). A CO cannot view another CO's retrieval audit records. This is enforced at the audit log query layer via the existing auth/RBAC controls, not inside the vector search.
+No contract-instance data enters the vector index regardless of tenant scope.
+
+**Audit log isolation:** Every retrieval log is scoped to `user_id` + `contract_id` (the contract the CO is modifying). A CO cannot view another CO's retrieval audit records. Enforced at the audit log query layer via existing auth/RBAC controls.
 
 **Structured DB lookups (Blocks 1–10, 12):** Already scoped by contract ID at the application layer. No change needed here.
 
@@ -339,13 +355,14 @@ Every CO queries the same shared FAR/DFARS, WAWF/PIEE corpus. Isolation is appli
 | `embedding_model` | string | Bedrock model ID used to generate the embedding |
 | `embedding_dimensions` | integer | Dimension count of the stored vector |
 | `embedding_model_version` | string | Short version tag (e.g., `v2`) |
-| `tenant_id` | string | Namespace — `far_corpus_global` for FAR/DFARS, WAWF/PIEE documents |
+| `tenant_id` | string | Namespace — `far_corpus_global` for global FAR/DFARS, WAWF/PIEE documents available to all tenants; or `<agency_id>` for tenant-scoped documents available only to that agency |
 | `embedding` | float array | The vector representation |
 
 **Every retrieval operation logs to the audit collection.** Required fields per retrieval log:
 
 | Field | Type | Description |
 |---|---|---|
+| `correlation_id` | UUID | Generated at CO request entry; shared across all pipeline node audit records for this request — enables full request traceability across retrieval, confidence check, draft, and faithfulness gate log entries |
 | `retrieval_id` | UUID | Unique identifier for this retrieval event |
 | `sf30_block` | string | Which SF-30 block triggered this retrieval (e.g., `"13"`) |
 | `contract_id` | string | The contract number being modified |
@@ -510,7 +527,7 @@ Established tools we use — no custom implementation needed for any of these:
 - Vector index must be built before ANY SF-30 AI-assist flow goes live — no index means no retrieval means no draft
 - Embedding pipeline requires Bedrock bearer token — team must explicitly enable the `.env` before Phase 3
 - `cross-encoder/ms-marco-MiniLM-L-6-v2` must be downloaded at container build time (not runtime) — add to `requirements.txt` and `Dockerfile`
-- LangFuse requires its own Docker service in `docker-compose.yml` plus two new env vars (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`)
+- LangFuse Docker service deferred to Phase 2 (2026-06-10) — Phase 1 uses structured JSON audit logs + `correlation_id` only. When added, LangFuse requires its own service in `docker-compose.yml` plus two new env vars (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`)
 - Corpus admin role must be defined in auth before corpus ingestion can begin (HITL gate requirement)
 - Any `from langchain_classic import` anywhere in the codebase fails CI — linter rule required
 - Block 13 retrieval adds ~300–500ms latency per CO query (embedding + vector search + re-rank) — within acceptable UX range; baseline in LangFuse from day one
