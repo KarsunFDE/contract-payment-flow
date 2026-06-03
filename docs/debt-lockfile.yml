@@ -77,7 +77,7 @@ items:
 
   - id: 7
     name: unused-pinecone-client
-    locked: true
+    locked: false
     scheduled_unlock_week: W2-Mon
     teaching_anchor: Atlas-Vector-Search-introduction
     test_marker: brownfield_debt_7
