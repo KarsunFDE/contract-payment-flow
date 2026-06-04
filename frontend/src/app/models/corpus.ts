@@ -27,8 +27,6 @@ export interface CorpusDocumentMetadata {
 /** Body for the CO-approved ingestion step. */
 export interface CorpusIngestRequest {
   staged_document_ids: string[];
-  user_id: string; // CO identity approving the batch (HITL §15)
-  tenant_id: string; // "far_corpus_global" or an agency id
   document_version: string; // date of the FAR corpus version
 }
 

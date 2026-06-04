@@ -2,7 +2,6 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CorpusService } from '../../services/corpus.service';
-import { RoleService } from '../../services/role.service';
 import {
   CorpusDocumentMetadata,
   CorpusIngestRequest,
@@ -104,10 +103,7 @@ export class CorpusUploadComponent {
   errorMessage = '';
   ingestSummary = '';
 
-  constructor(
-    private corpusService: CorpusService,
-    private roleService: RoleService,
-  ) {}
+  constructor(private corpusService: CorpusService) {}
 
   /** Capture the file selection from the input element. */
   onFileSelected(event: Event): void {
@@ -144,8 +140,6 @@ export class CorpusUploadComponent {
     this.ingesting = true;
     const request: CorpusIngestRequest = {
       staged_document_ids: this.stagedDocuments.map((d) => d.staged_document_id),
-      user_id: this.roleService.current.role,
-      tenant_id: 'far_corpus_global',
       document_version: new Date().toISOString().split('T')[0],
     };
     this.corpusService.ingestDocuments(request).subscribe({

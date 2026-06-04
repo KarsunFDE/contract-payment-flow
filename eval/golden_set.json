@@ -4,9 +4,10 @@
     "sf30_block": "13",
     "tenant_id": "far_corpus_global",
     "min_samples_required": 10,
-    "total_samples": 12,
-    "warn_only_until": "faithfulness_baseline.json is populated by a real RAGAS run",
-    "last_updated": "2026-06-03"
+    "total_samples": 11,
+    "note": "AI-GENERATED MOCK SET, PENDING CO VALIDATION. These samples are synthetic and have not been reviewed by a Contracting Officer. Any RAGAS gate consuming this file MUST remain WARN-ONLY (non-blocking) until a CO-validated baseline exists — see warn_only_until. All cited regulations here have a corresponding seed source document in data/seed/far-part-42-43-32/ — samples whose substance depends on un-ingested regulations must NOT be added (a former FAR Part 49 termination-settlement sample was removed for this reason: RAGAS would score its draft against retrievable 43.x context while the real answer lives in un-ingested FAR 49, manufacturing a false-green).",
+    "warn_only_until": "faithfulness_baseline.json is populated by a CO-validated RAGAS run",
+    "last_updated": "2026-06-04"
   },
   "samples": [
     {
@@ -148,20 +149,6 @@
         "5 CFR 1315"
       ],
       "notes": "Improper invoice return failure — tests 5 CFR 1315 retrieval specifically."
-    },
-    {
-      "id": "gs-011",
-      "sf30_block": "13",
-      "modification_type": "unilateral",
-      "query": "Contracting officer issuing unilateral modification to terminate contract for convenience effective immediately. Contractor shall stop work, submit termination settlement proposal per FAR 49.",
-      "ground_truth_citations": ["FAR 43.103(b)", "FAR 43.101"],
-      "expected_draft_contains": [
-        "unilateral",
-        "termination",
-        "contracting officer",
-        "stop work"
-      ],
-      "notes": "Termination notice — explicit unilateral use case in FAR 43.103(b)."
     },
     {
       "id": "gs-012",

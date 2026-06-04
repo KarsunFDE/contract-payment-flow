@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import NamedTuple
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -39,9 +40,35 @@ log = logging.getLogger("ai-orchestrator.ingestion.chunker")
 # §13 rule 1 — separator priority: clause/section boundary, paragraph, sentence.
 SEPARATORS = ["\n\n", "\n", ". "]
 
-# Matches FAR-style clause headers like "43.103" or "32.905" at line start.
-# Group 1 = part number ("43"), Group 2 = section digits ("103").
-CLAUSE_HEADER_PATTERN = re.compile(r"^(\d{1,2})\.(\d{3})", re.MULTILINE)
+# Matches FAR-style clause headers at the start of a line, e.g.
+#   "43.103 Types of contract modifications."   (3-digit section)
+#   "32.7 Contract funding."                     (1-digit section)
+#   "42.15 Contractor performance information."  (2-digit section)
+#   "43.205-1 Changes."                          (dash-suffixed clause)
+# Group 1 = part number ("43"), Group 2 = section ("103" / "7" / "205-1").
+#
+# False-positive guard: the number must (a) start the line (MULTILINE ^) and
+# (b) be followed by whitespace then a non-digit — i.e. the clause title text.
+# This keeps prose decimals out: "3.5 percent" fails because the line does not
+# start there; "1.2 million" would also fail the trailing non-digit test.
+# A FAR section is 1–3 digits; a real header like "43.103 Types of..." or
+# "43.205-1 Changes." satisfies the lookahead, a numeric run like "12.345.678"
+# does not (the trailing char after the captured number is a digit).
+CLAUSE_HEADER_PATTERN = re.compile(
+    r"^(\d{1,2})\.(\d{1,3}(?:-\d+)?)(?=\s+\D)",
+    re.MULTILINE,
+)
+
+
+class ChunkResult(NamedTuple):
+    """Result of chunk_document: kept chunks plus how many were discarded.
+
+    chunks: list of chunk dicts ready for embedding (see chunk_document).
+    discarded_count: number of sub-MIN_CHUNK_CHARS fragments dropped (§13 rule 4).
+    """
+
+    chunks: list[dict]
+    discarded_count: int
 
 
 def build_text_splitter() -> RecursiveCharacterTextSplitter:
@@ -75,10 +102,15 @@ def extract_section_metadata(document_text: str) -> list[dict]:
 
     for i, match in enumerate(matches):
         far_part = match.group(1)              # e.g. "43"
-        section_digits = match.group(2)        # e.g. "103"
-        clause_number = match.group(0)         # e.g. "43.103"
-        # Subpart = part + first digit of section ("43.103" → "43.1")
-        subpart = f"{far_part}.{section_digits[0]}"
+        section = match.group(2)               # e.g. "103" / "7" / "205-1"
+        # clause_number excludes the trailing-non-digit lookahead, so it is
+        # just "part.section" ("43.103", "32.7", "43.205-1").
+        clause_number = f"{far_part}.{section}"
+        # Subpart = part + first digit of the section number, ignoring any
+        # dash suffix: "43.103" → "43.1", "42.15" → "42.1", "32.7" → "32.7",
+        # "43.205-1" → "43.2". The first digit of the section is the subpart
+        # digit regardless of how many section digits follow.
+        subpart = f"{far_part}.{section[0]}"
 
         start = match.start()
         # Section ends where the next clause header begins (or at doc end).
@@ -98,7 +130,7 @@ def extract_section_metadata(document_text: str) -> list[dict]:
 def chunk_document(
     document_text: str,
     source: SourceDocument,
-) -> list[dict]:
+) -> ChunkResult:
     """Split one source document into chunk dicts ready for embedding.
 
     Enforces all four §13 rules:
@@ -119,9 +151,11 @@ def chunk_document(
         source: Provenance of the document (title, far_part, url, ...).
 
     Returns:
-        List of dicts with keys: chunk_text, chunk_sequence, far_part,
-        subpart, clause_number. Embedding + remaining provenance fields are
-        added downstream by pipeline.py.
+        A ChunkResult(chunks, discarded_count) where ``chunks`` is a list of
+        dicts with keys chunk_text, chunk_sequence, far_part, subpart,
+        clause_number (embedding + remaining provenance fields are added
+        downstream by pipeline.py), and ``discarded_count`` is the number of
+        sub-MIN_CHUNK_CHARS fragments dropped under §13 rule 4.
     """
     splitter = build_text_splitter()
     sections = extract_section_metadata(document_text)
@@ -170,13 +204,14 @@ def chunk_document(
     for seq, chunk in enumerate(kept):
         chunk["chunk_sequence"] = seq
 
+    discarded_count = len(raw_splits) - len(kept)
     log.info(
         "chunked %r — raw splits: %d  kept: %d  discarded: %d (< %d chars)",
         source.title,
         len(raw_splits),
         len(kept),
-        len(raw_splits) - len(kept),
+        discarded_count,
         config.MIN_CHUNK_CHARS,
     )
 
-    return kept
+    return ChunkResult(chunks=kept, discarded_count=discarded_count)

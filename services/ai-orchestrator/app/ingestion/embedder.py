@@ -68,17 +68,29 @@ class MongoCachedEmbedder:
     Vectors persist in the embedding_cache collection so the cache survives
     container restarts. Only cache misses hit Bedrock.
 
-    Exposes _last_hits / _last_misses after each embed_documents() call so
-    pipeline.py can include cache_hits in the ingestion summary (§7).
+    Exposes read-only ``last_hits`` / ``last_misses`` properties after each
+    embed_documents() call so pipeline.py can include cache_hits in the
+    ingestion summary (§7).
     """
 
     def __init__(self, inner: BedrockEmbeddings | None = None) -> None:
         # inner is injectable for unit tests (mock Bedrock, real cache logic).
         self._inner = inner
         self._cache = db.get_embedding_cache()
-        # Reset on each embed_documents() call; readable by pipeline.py.
+        # Reset on each embed_documents() call; exposed read-only via the
+        # last_hits / last_misses properties (read by pipeline.py).
         self._last_hits: int = 0
         self._last_misses: int = 0
+
+    @property
+    def last_hits(self) -> int:
+        """Cache hits served from Mongo on the most recent embed_documents()."""
+        return self._last_hits
+
+    @property
+    def last_misses(self) -> int:
+        """Cache misses sent to Bedrock on the most recent embed_documents()."""
+        return self._last_misses
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of chunk texts, serving repeats from the Mongo cache.
@@ -106,6 +118,13 @@ class MongoCachedEmbedder:
         miss_texts = [texts[i] for i in miss_indices]
 
         if miss_texts:
+            if self._inner is None:
+                # Cache-hit-only usage works without an inner embedder (tests);
+                # a miss without one is a configuration error, not an AttributeError.
+                raise RuntimeError(
+                    "MongoCachedEmbedder has no inner embedder configured — "
+                    "pass one to __init__ or use get_embedder()"
+                )
             # Bedrock batch call — raises on auth/throttle failure (§10: no silence).
             new_vectors = self._inner.embed_documents(miss_texts)
 

@@ -9,7 +9,9 @@ Creates both search indexes on the far_corpus collection:
   far_vector_idx — $vectorSearch index
       type: knnVector on the `embedding` field
       dimensions: 512, similarity: cosine
-      filter fields: chunk_text, far_part, clause_number, tenant_id
+      filter fields: tenant_id, far_part, clause_number
+          (chunk_text deliberately excluded — see build_vector_index_model;
+           it stays indexed for sparse retrieval in far_text_idx)
       dynamic mapping: DISABLED — only declared fields indexed (§3)
 
   far_text_idx — Atlas Search BM25 index
@@ -40,6 +42,13 @@ log = logging.getLogger("create-indexes")
 POLL_INTERVAL_SECONDS = 5
 POLL_TIMEOUT_SECONDS = 300
 
+# Terminal "good" statuses. Atlas Local and different search index types can report
+# either READY or ACTIVE for a usable index — keying on READY alone made the poll
+# hang to the full timeout on backends that only ever report ACTIVE.
+READY_STATUSES = frozenset({"READY", "ACTIVE"})
+# Terminal "bad" statuses that should abort immediately rather than wait out the timeout.
+FAILED_STATUSES = frozenset({"FAILED", "DOES_NOT_EXIST"})
+
 
 def build_vector_index_model() -> SearchIndexModel:
     """Define far_vector_idx per ADR-0005 §3 vector index specification."""
@@ -59,7 +68,15 @@ def build_vector_index_model() -> SearchIndexModel:
                 {"type": "filter", "path": "tenant_id"},
                 {"type": "filter", "path": "far_part"},
                 {"type": "filter", "path": "clause_number"},
-                {"type": "filter", "path": "chunk_text"},
+                # NOTE: chunk_text intentionally NOT a vector filter field — deliberate
+                # deviation from ADR-0005 §3 (which lists it among the vector index's
+                # "additional indexed fields"). No ADR retrieval pattern ever filters
+                # $vectorSearch on body text, and adversarial review finding 12 already
+                # flags this for the ADR's next revision. chunk_text remains fully
+                # indexed for BM25/sparse retrieval in far_text_idx (build_text_index_model).
+                # CAUTION: a dev far_vector_idx created with the OLD filter set still
+                # carries chunk_text — the idempotency check skips by name, so that index
+                # must be dropped + recreated to shed the field.
             ]
         },
         name=config.FAR_VECTOR_INDEX,
@@ -94,13 +111,17 @@ def existing_search_index_names(collection) -> set[str]:
 
 
 def wait_until_indexes_ready(collection, index_names: list[str]) -> bool:
-    """Poll list_search_indexes until all named indexes report READY.
+    """Poll list_search_indexes until all named indexes are queryable.
 
-    Migration Step 5.3 requires both indexes ACTIVE before go-live.
-    Returns False on timeout or FAILED status — main() converts that to exit 1.
+    Migration Step 5.3 requires both indexes usable before go-live. An index is
+    treated as ready when it reaches a known-good terminal status (READY/ACTIVE)
+    OR reports queryable==true (the field Atlas exposes in list_search_indexes to
+    say the index can serve queries regardless of its textual status label).
+    Returns False on timeout or a terminal-bad status (FAILED/DOES_NOT_EXIST) —
+    main() converts that to exit 1.
     """
     deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
-    pending = set(index_names)  # shrinks as each index reaches READY
+    pending = set(index_names)  # shrinks as each index becomes queryable
 
     while pending and time.monotonic() < deadline:
         for idx in collection.list_search_indexes():
@@ -109,13 +130,16 @@ def wait_until_indexes_ready(collection, index_names: list[str]) -> bool:
                 continue  # skip indexes we're not waiting on
 
             status = idx.get("status", "UNKNOWN")
-            log.info("  %-30s → %s", name, status)
+            # 'queryable' is an Atlas-provided bool; absent on backends that don't
+            # report it, so only treat an explicit True as ready (don't assume).
+            queryable = idx.get("queryable")
+            log.info("  %-30s → %s (queryable=%s)", name, status, queryable)
 
-            if status == "READY":
+            if status in READY_STATUSES or queryable is True:
                 pending.discard(name)
-            elif status == "FAILED":
-                # FAILED is non-recoverable without dropping and recreating the index.
-                log.error("index %r entered FAILED state — aborting", name)
+            elif status in FAILED_STATUSES:
+                # Terminal-bad: non-recoverable without dropping and recreating the index.
+                log.error("index %r entered %s state — aborting", name, status)
                 return False
 
         if pending:
@@ -128,7 +152,7 @@ def wait_until_indexes_ready(collection, index_names: list[str]) -> bool:
 
     if pending:
         log.error(
-            "timed out after %ds; indexes never reached READY: %s",
+            "timed out after %ds; indexes never became queryable: %s",
             POLL_TIMEOUT_SECONDS,
             sorted(pending),
         )
@@ -147,6 +171,23 @@ def main() -> int:
     if collection.name not in database.list_collection_names():
         log.info("collection %r not found — creating it", collection.name)
         database.create_collection(collection.name)
+
+    # Unique index on the deterministic chunk_ref (sha256) so duplicate upserts are
+    # rejected at the DB layer. create_index is idempotent — same name/spec is a no-op.
+    collection.create_index(
+        [("chunk_ref", 1)],
+        unique=True,
+        name="chunk_ref_unique",
+        partialFilterExpression={"chunk_ref": {"$exists": True}},
+    )
+    log.info("ensured unique index %r on chunk_ref", "chunk_ref_unique")
+
+    # TTL index on corpus_staging.expires_at (finding 2): the router stamps
+    # expires_at = created_at + 7d; expireAfterSeconds=0 reaps each doc at its
+    # own expires_at so staged source text is not retained forever. Idempotent.
+    staging = database["corpus_staging"]
+    staging.create_index([("expires_at", 1)], name="staging_ttl", expireAfterSeconds=0)
+    log.info("ensured TTL index %r on %s.expires_at", "staging_ttl", staging.name)
 
     # Check what already exists so re-runs are safe to call repeatedly.
     existing = existing_search_index_names(collection)
