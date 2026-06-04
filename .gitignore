@@ -46,3 +46,6 @@ yarn-error.log
 # --- Logs ---
 *.log
 logs/
+
+# --- Misc ---
+docs/context

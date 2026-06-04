@@ -31,6 +31,11 @@ services:
 
   mongodb:
     image: mongodb/mongodb-atlas-local:8.0
+    # Stable hostname: atlas-local pins the single-node replica-set member to
+    # the container hostname at first init. Without this, any `up --build`
+    # recreate changes the hostname, the old member host no longer resolves,
+    # no primary is elected, and the atlas-local runner panics (exit 2).
+    hostname: mongodb
     environment:
       MONGODB_INITDB_ROOT_USERNAME: app
       MONGODB_INITDB_ROOT_PASSWORD: app_dev_password
@@ -103,13 +108,19 @@ services:
       AWS_REGION: us-east-1
       BEDROCK_MODEL_ID: anthropic.claude-3-7-sonnet-20250219-v1:0
       MONGO_URL: mongodb://app:app_dev_password@mongodb:27017
+      # Bedrock bearer-token auth (ADR-0005 §4 / Migration Step 4). Interpolated
+      # from the repo-root .env — bring the stack up with:
+      #   docker-compose -f infra/docker/docker-compose.yml --env-file ../../.env up
+      # (or `--env-file .env` from repo root). Empty string if unset, so the
+      # mock-Bedrock path still works without real creds.
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
     depends_on:
       mongodb:
         condition: service_healthy
-    # ⚠ DELIBERATE: no AWS creds wired — relies on shared dev IAM role being
-    #   mounted via ~/.aws/credentials. The Bedrock stub returns mock data
-    #   so it works without real creds. First-day learners discover this and
-    #   learn to run `aws configure sso`.
+    # ⚠ DELIBERATE: no AWS access-key creds wired — relies on shared dev IAM role
+    #   mounted via ~/.aws/credentials, OR the bearer token above. The Bedrock
+    #   stub returns mock data so it works without real creds. First-day learners
+    #   discover this and learn to run `aws configure sso`.
     # ⚠ no healthcheck
 
   frontend:

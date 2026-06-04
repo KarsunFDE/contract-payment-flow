@@ -1,0 +1,169 @@
+{
+  "_meta": {
+    "description": "Golden test set for Block 13 RAG evaluation (ADR-0005 §7).",
+    "sf30_block": "13",
+    "tenant_id": "far_corpus_global",
+    "min_samples_required": 10,
+    "total_samples": 11,
+    "note": "AI-GENERATED MOCK SET, PENDING CO VALIDATION. These samples are synthetic and have not been reviewed by a Contracting Officer. Any RAGAS gate consuming this file MUST remain WARN-ONLY (non-blocking) until a CO-validated baseline exists — see warn_only_until. All cited regulations here have a corresponding seed source document in data/seed/far-part-42-43-32/ — samples whose substance depends on un-ingested regulations must NOT be added (a former FAR Part 49 termination-settlement sample was removed for this reason: RAGAS would score its draft against retrievable 43.x context while the real answer lives in un-ingested FAR 49, manufacturing a false-green).",
+    "warn_only_until": "faithfulness_baseline.json is populated by a CO-validated RAGAS run",
+    "last_updated": "2026-06-04"
+  },
+  "samples": [
+    {
+      "id": "gs-001",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Equitable adjustment for government-directed additional work. Contractor submitted certified cost or pricing data. Parties reached bilateral agreement on price and schedule impact.",
+      "ground_truth_citations": ["FAR 43.103(a)", "FAR 43.101"],
+      "expected_draft_contains": [
+        "bilateral modification",
+        "equitable adjustment",
+        "supplemental agreement"
+      ],
+      "notes": "Core bilateral type — ADR §4 Block 13 primary use case."
+    },
+    {
+      "id": "gs-002",
+      "sf30_block": "13",
+      "modification_type": "unilateral",
+      "query": "Administrative change to correct unit price discrepancy in Contract Line Item 0001. No change in total contract value, scope, or schedule.",
+      "ground_truth_citations": ["FAR 43.103(b)", "FAR 43.101"],
+      "expected_draft_contains": [
+        "unilateral modification",
+        "administrative change",
+        "contracting officer"
+      ],
+      "notes": "Administrative unilateral — signed only by CO."
+    },
+    {
+      "id": "gs-003",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Definitize letter contract. Contractor submitted proposal with certified cost or pricing data. Parties bilaterally agreed on firm-fixed price and final contract terms.",
+      "ground_truth_citations": ["FAR 43.103(a)", "FAR 43.101"],
+      "expected_draft_contains": [
+        "bilateral modification",
+        "definitize",
+        "letter contract",
+        "supplemental agreement"
+      ],
+      "notes": "Letter contract definitization — explicit FAR 43.103(a) use case."
+    },
+    {
+      "id": "gs-004",
+      "sf30_block": "13",
+      "modification_type": "unilateral",
+      "query": "Add DFARS 252.232-7003 Wide Area WorkFlow clause. Contractor shall submit all payment requests and receiving reports electronically via WAWF.",
+      "ground_truth_citations": ["DFARS 252.232-7003"],
+      "expected_draft_contains": [
+        "WAWF",
+        "Wide Area WorkFlow",
+        "electronic submission",
+        "payment requests",
+        "receiving reports"
+      ],
+      "notes": "DFARS WAWF clause insertion — unilateral administrative."
+    },
+    {
+      "id": "gs-005",
+      "sf30_block": "13",
+      "modification_type": "unilateral",
+      "query": "Administrative modification to update Contracting Officer's Representative designation. Previous COR departed agency. New COR assigned per FAR 42.302 and 1.602-2(d).",
+      "ground_truth_citations": ["FAR 42", "FAR 43.103(b)"],
+      "expected_draft_contains": [
+        "Contracting Officer's Representative",
+        "COR",
+        "administrative",
+        "unilateral"
+      ],
+      "notes": "COR update — common unilateral administrative mod."
+    },
+    {
+      "id": "gs-006",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Bilateral modification to extend period of performance by 90 days. Extension caused by Government-furnished equipment delivery delay. No change in contract price.",
+      "ground_truth_citations": ["FAR 43.103(a)", "FAR 43.101"],
+      "expected_draft_contains": [
+        "bilateral modification",
+        "period of performance",
+        "supplemental agreement",
+        "mutual agreement"
+      ],
+      "notes": "PoP extension bilateral — parties must agree since price unchanged but time affects contractor."
+    },
+    {
+      "id": "gs-007",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Add proper invoice requirements to contract. Invoice must include all elements required by FAR 32.905(b). Designated billing office will return improper invoices within 7 days.",
+      "ground_truth_citations": ["FAR 32.905", "FAR 32.9"],
+      "expected_draft_contains": [
+        "proper invoice",
+        "FAR 32.905",
+        "7 days",
+        "designated billing office"
+      ],
+      "notes": "Proper invoice clause — tests FAR 32 retrieval."
+    },
+    {
+      "id": "gs-008",
+      "sf30_block": "13",
+      "modification_type": "unilateral",
+      "query": "Insert prompt payment terms. Government will pay within 30 days of receipt of proper invoice or Government acceptance, whichever is later. Interest penalties apply per 5 CFR 1315.",
+      "ground_truth_citations": ["FAR 32.9", "5 CFR 1315"],
+      "expected_draft_contains": [
+        "prompt payment",
+        "30 days",
+        "interest penalty",
+        "proper invoice"
+      ],
+      "notes": "Prompt payment clause — tests FAR 32.9 and 5 CFR 1315 retrieval."
+    },
+    {
+      "id": "gs-009",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Authority for modification: Changes clause (FAR 52.243-1). Bilateral agreement to definitize equitable adjustment for changed work directed by the contracting officer. Description of change and agreed price increase included.",
+      "ground_truth_citations": ["FAR 43.301", "FAR 43.103", "FAR 43.101"],
+      "expected_draft_contains": [
+        "Changes clause",
+        "bilateral",
+        "equitable adjustment",
+        "SF-30",
+        "Block 13"
+      ],
+      "notes": "SF-30 authority citation — tests FAR 43.301 retrieval (use of SF-30 form)."
+    },
+    {
+      "id": "gs-010",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Agency failed to return improper invoice within 7-day window required by 5 CFR 1315.4(g). Interest penalty accrual period is reduced by days beyond the 7-day return deadline. Modify contract to acknowledge interest obligation.",
+      "ground_truth_citations": ["5 CFR 1315", "FAR 32.905", "FAR 32.9"],
+      "expected_draft_contains": [
+        "improper invoice",
+        "7 days",
+        "interest penalty",
+        "5 CFR 1315"
+      ],
+      "notes": "Improper invoice return failure — tests 5 CFR 1315 retrieval specifically."
+    },
+    {
+      "id": "gs-012",
+      "sf30_block": "13",
+      "modification_type": "bilateral",
+      "query": "Modify contract to require WAWF three-way match: contractor invoice, COR receiving report, and contract. Electronic submission mandatory per DFARS 252.232-7003. Three-way match underpins proper invoice determination per FAR 32.905.",
+      "ground_truth_citations": ["DFARS 252.232-7003", "FAR 32.905"],
+      "expected_draft_contains": [
+        "WAWF",
+        "three-way match",
+        "receiving report",
+        "proper invoice",
+        "DFARS 252.232-7003"
+      ],
+      "notes": "WAWF + proper invoice cross-reference — tests multi-corpus retrieval."
+    }
+  ]
+}
