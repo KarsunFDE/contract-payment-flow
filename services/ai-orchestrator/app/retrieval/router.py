@@ -197,13 +197,10 @@ def retrieve(
     fused = fusion.reciprocal_rank_fusion(dense_results, sparse_results)
     # Map document identity → pre-rerank fused score so the audit record can pair
     # each reranked chunk with its OWN fused score. The cross-encoder reorders
-    # results, so positional pre_rerank_scores[i] would be misaligned. Key logic
-    # mirrors fusion._key (chunk_id from metadata, falling back to page_content
-    # prefix) so lookups hit the same identity fusion used to dedupe.
-    fused_score_by_key = {
-        (doc.metadata.get("chunk_id") or doc.page_content[:64]): score
-        for doc, score in fused
-    }
+    # results, so positional pre_rerank_scores[i] would be misaligned. Key on
+    # fusion.doc_key — the SAME helper fusion used to dedupe — so these lookups
+    # hit the identity fusion assigned (divergence silently zeroes audit scores).
+    fused_score_by_key = {fusion.doc_key(doc): score for doc, score in fused}
 
     # --- rerank ---
     ranked, reranker_degraded = reranker.rerank(request.query, fused)
@@ -251,7 +248,17 @@ def retrieve(
         chunk_ids.append(cid)
         rerank_score = None if score is None else float(score)
         reranked_scores.append(rerank_score)
-        fused_key = doc.metadata.get("chunk_id") or doc.page_content[:64]
+        fused_key = fusion.doc_key(doc)
+        if fused_key not in fused_score_by_key:
+            # A reranked chunk whose identity is absent from the fused map means
+            # the key drifted from fusion's — the 0.0 fallback would silently
+            # zero this chunk's DCAA audit retrieval score. Make it loud.
+            log.warning(
+                "fused score missing for chunk %r — audit retrieval_score zeroed. "
+                "correlation_id=%s",
+                fused_key,
+                correlation_id,
+            )
         fused_score = float(fused_score_by_key.get(fused_key, 0.0))
         retrieval_scores.append(fused_score)
         response_chunks.append(

@@ -20,6 +20,14 @@ from langchain_mongodb import MongoDBAtlasVectorSearch
 
 from app import config
 from app import db
+# Query-side embeddings MUST use the same factory as the indexed (write-path)
+# vectors: the read path here and ingestion (app.ingestion.embedder) must share
+# this single Titan V2 factory so query-vector and indexed-vector kwargs can
+# never drift (a silent retrieval-precision regression). If importing the write
+# path from the read path ever becomes a problem, the alternative is moving
+# build_bedrock_embeddings to a neutral shared module — both paths must still
+# share one factory.
+from app.ingestion.embedder import build_bedrock_embeddings
 from app.retrieval.failures import with_retry
 
 log = logging.getLogger("ai-orchestrator.retrieval.retriever")
@@ -35,14 +43,9 @@ def _get_embeddings() -> BedrockEmbeddings:
         # Bedrock client (double-checked under the lock).
         with _embeddings_lock:
             if _embeddings is None:
-                _embeddings = BedrockEmbeddings(
-                    model_id=config.EMBEDDING_MODEL_ID,
-                    region_name=config.AWS_REGION,
-                    model_kwargs={
-                        "dimensions": config.EMBEDDING_DIMENSIONS,
-                        "normalize": config.EMBEDDING_NORMALIZE,
-                    },
-                )
+                # Shared factory with the write path (see import comment) so the
+                # query vectors match the indexed vectors exactly.
+                _embeddings = build_bedrock_embeddings()
     return _embeddings
 
 

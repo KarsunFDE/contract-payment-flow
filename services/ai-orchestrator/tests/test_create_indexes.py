@@ -27,9 +27,24 @@ def _filter_paths(model) -> set[str]:
 
 
 def test_vector_index_filter_fields_exact():
-    """far_vector_idx filters are exactly {tenant_id, far_part, clause_number}."""
+    """far_vector_idx filters use the stored nested shape: tenant_id (top-level)
+    plus source_document.far_part / source_document.clause_number (finding 5)."""
     model = ci.build_vector_index_model()
-    assert _filter_paths(model) == {"tenant_id", "far_part", "clause_number"}
+    assert _filter_paths(model) == {
+        "tenant_id",
+        "source_document.far_part",
+        "source_document.clause_number",
+    }
+
+
+def test_vector_index_filter_paths_match_stored_nesting():
+    """far_part / clause_number must be filtered at their nested document path,
+    not top-level (finding 5: top-level paths matched zero docs)."""
+    paths = _filter_paths(ci.build_vector_index_model())
+    assert "far_part" not in paths
+    assert "clause_number" not in paths
+    assert "source_document.far_part" in paths
+    assert "source_document.clause_number" in paths
 
 
 def test_vector_index_has_no_chunk_text_filter():

@@ -59,13 +59,20 @@ _STAGING_TTL = timedelta(days=7)
 # chunk_ref upsert in pipeline.py makes the re-run a no-op, not a duplicate.
 _STALE_CLAIM = timedelta(minutes=15)
 
-# Metadata format validation (review finding 3). FAR citations:
-#   far_part      — 1-2 digits ("4", "43").
+# Metadata format validation (review findings 3 + 8). Must accept both FAR and
+# DFARS citation shapes — DFARS is in scope (seed doc
+# data/seed/far-part-42-43-32/dfars-252-232-7003-wawf.md; pipeline._source_from_file
+# handles it). The stored data shapes the seed doc produces are:
+#   far_part      — the literal "DFARS" (from its frontmatter far_part:).
+#   clause_number — "252.232-7003" (3-digit part . 3-digit section - 4-digit suffix).
+#   subpart       — "" (DFARS clauses get no subpart, per pipeline._subpart_from_clause).
+# FAR citations remain:
+#   far_part      — 1-3 digits ("4", "43", and DFARS-numbered "252").
 #   subpart       — part.section ("43.1"); section is 1-3 digits (e.g. 32.7, 42.15).
-#   clause_number — part.section with an optional "-N" suffix ("43.205-1").
-_FAR_PART_RE = re.compile(r"^\d{1,2}$")
-_SUBPART_RE = re.compile(r"^\d{1,2}\.\d{1,3}$")
-_CLAUSE_RE = re.compile(r"^\d{1,2}\.\d{1,3}(?:-\d+)?$")
+#   clause_number — part.section with an optional "-N" suffix ("43.205-1", "252.232-7003").
+_FAR_PART_RE = re.compile(r"^(?:\d{1,3}|DFARS)$")
+_SUBPART_RE = re.compile(r"^\d{1,3}\.\d{1,3}$")
+_CLAUSE_RE = re.compile(r"^\d{1,3}\.\d{1,3}(?:-\d+)?$")
 
 # Dedicated ingestion-audit collection (review finding 6). Accessed dynamically
 # (like corpus_staging) to avoid editing the frozen db.py. Kept SEPARATE from
@@ -150,6 +157,52 @@ def _writable_tenant(principal: CorpusPrincipal) -> str:
     return principal.agency_id or config.GLOBAL_TENANT_ID
 
 
+def _write_ingestion_audit(record: dict, *, fail_closed: bool, correlation: str) -> None:
+    """Write one run record to the ingestion_audit collection (review finding 6).
+
+    The three call sites (success / partial / failed) share this so audit-write
+    failure has deliberate, per-path semantics instead of a bare insert_one that
+    propagates raw:
+
+    - fail_closed=False (FAILED / PARTIAL paths): the audit write must NEVER mask
+      the original ingestion error. If the insert raises we log it loudly (§10
+      no-silent-failure: the audit failure itself stays visible in the logs) and
+      return so the caller can re-raise the ORIGINAL error path unchanged.
+
+    - fail_closed=True (SUCCESS path): project convention is fail-closed on audit
+      (cf. retrieval router's FAR 43.102 rationale). Here the chunks are ALREADY
+      committed, so a generic 500 would mislead the client into retrying an
+      already-applied ingest. We deliberately raise 503 with an explicit message
+      that ingestion succeeded but the audit record failed and the caller must
+      NOT re-ingest. The deterministic chunk_ref upsert (pipeline.py) makes an
+      accidental retry an idempotent no-op anyway, so this is safe-by-default.
+    """
+    try:
+        db.get_db()[_INGESTION_AUDIT_COLLECTION].insert_one(record)
+    except Exception:
+        if not fail_closed:
+            log.critical(
+                "ingestion_audit write FAILED on the error path — original ingestion "
+                "error is preserved and re-raised below; this audit record was LOST. %s",
+                correlation,
+                exc_info=True,
+            )
+            return
+        log.critical(
+            "ingestion_audit write FAILED after a SUCCESSFUL ingest — failing closed. "
+            "Chunks were already committed; the run record was LOST. %s",
+            correlation,
+            exc_info=True,
+        )
+        raise HTTPException(
+            503,
+            "Ingestion succeeded but the audit record could not be written; the run "
+            "is unaudited. Do NOT re-ingest these documents — the chunks are already "
+            "committed and the deterministic chunk_ref upsert makes a retry an "
+            "idempotent no-op. Investigate the ingestion_audit collection.",
+        )
+
+
 @router.get("/_status")
 def status() -> dict[str, str]:
     """Day 0 wiring check — confirms the write-path router is mounted."""
@@ -200,7 +253,10 @@ async def upload_corpus_document(
     if not title:
         raise HTTPException(422, "title must be non-empty.")
     if not _FAR_PART_RE.match(far_part):
-        raise HTTPException(422, f"far_part {far_part!r} must be 1-2 digits, e.g. '43'.")
+        raise HTTPException(
+            422,
+            f"far_part {far_part!r} must be 1-3 digits (e.g. '43', '252') or 'DFARS'.",
+        )
     if subpart and not _SUBPART_RE.match(subpart):
         raise HTTPException(
             422,
@@ -209,7 +265,8 @@ async def upload_corpus_document(
     if clause_number and not _CLAUSE_RE.match(clause_number):
         raise HTTPException(
             422,
-            f"clause_number {clause_number!r} must match e.g. '43.103' or '43.205-1'.",
+            f"clause_number {clause_number!r} must match e.g. '43.103', '43.205-1', "
+            "or DFARS '252.232-7003'.",
         )
 
     raw = await file.read()
@@ -263,7 +320,6 @@ def ingest_staged_documents(
     ingestion_audit collection (finding 6, §10 no-silent-failure).
     """
     staging = db.get_db()["corpus_staging"]
-    ingestion_audit = db.get_db()[_INGESTION_AUDIT_COLLECTION]
     started_at = datetime.now(timezone.utc)
 
     tenant_id = _writable_tenant(principal)
@@ -415,7 +471,13 @@ def ingest_staged_documents(
             partial_record["event"] = "corpus_ingestion_partial"
             partial_record["ingested_by"] = ingested_by.model_dump()
             partial_record["tenant_id"] = tenant_id
-            ingestion_audit.insert_one(partial_record)
+            # Error path: don't let an audit-write failure mask the claim-time
+            # 404/409 we're about to re-raise (finding 6).
+            _write_ingestion_audit(
+                partial_record,
+                fail_closed=False,
+                correlation=f"tenant_id={tenant_id} current_sid={current_sid!r}",
+            )
         raise
     except Exception as exc:  # pipeline / embedding failure (§10)
         log.exception("ingest failed on %r", current_sid)
@@ -441,7 +503,14 @@ def ingest_staged_documents(
         fail_record["event"] = "corpus_ingestion_failed"
         fail_record["ingested_by"] = ingested_by.model_dump()
         fail_record["tenant_id"] = tenant_id
-        ingestion_audit.insert_one(fail_record)
+        # Error path: an audit-write failure here must NOT mask the original
+        # ingestion exception — _write_ingestion_audit logs loudly and returns so
+        # we still surface the crafted 500 below (finding 6).
+        _write_ingestion_audit(
+            fail_record,
+            fail_closed=False,
+            correlation=f"tenant_id={tenant_id} failed_document_id={current_sid!r}",
+        )
         raise HTTPException(
             500,
             f"Ingestion failed on {current_sid!r}; that document was marked failed and "
@@ -455,7 +524,15 @@ def ingest_staged_documents(
     )
     run_record["ingested_by"] = ingested_by.model_dump()
     run_record["tenant_id"] = tenant_id
-    ingestion_audit.insert_one(run_record)
+    # Success path: fail-closed on audit (finding 6). Chunks are already
+    # committed, so _write_ingestion_audit raises a 503 (not a misleading 500)
+    # telling the client not to re-ingest; the idempotent chunk_ref upsert makes
+    # an accidental retry a no-op regardless.
+    _write_ingestion_audit(
+        run_record,
+        fail_closed=True,
+        correlation=f"tenant_id={tenant_id} documents_ingested={totals['documents_ingested']}",
+    )
 
     return IngestResponse(**totals)
 

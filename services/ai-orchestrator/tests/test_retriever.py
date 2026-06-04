@@ -88,6 +88,31 @@ def test_tenant_ids_no_duplicate_global():
     assert ids.count("far_corpus_global") == 1
 
 
+# --- _get_embeddings uses the shared write-path factory ---
+
+def test_get_embeddings_uses_shared_factory():
+    # Query vectors must come from the SAME factory as the indexed vectors so
+    # the kwargs can never drift (ADR-0005 §3). Reset the module cache first.
+    import app.retrieval.retriever as retriever_mod
+
+    retriever_mod._embeddings = None
+    sentinel = object()
+    with patch(
+        "app.retrieval.retriever.build_bedrock_embeddings", return_value=sentinel
+    ) as factory:
+        result = retriever_mod._get_embeddings()
+
+    factory.assert_called_once()
+    assert result is sentinel
+    # cached: a second call must not rebuild
+    with patch(
+        "app.retrieval.retriever.build_bedrock_embeddings"
+    ) as factory2:
+        assert retriever_mod._get_embeddings() is sentinel
+        factory2.assert_not_called()
+    retriever_mod._embeddings = None
+
+
 # --- hybrid_search delegates correctly ---
 
 def test_hybrid_search_calls_both_searches():

@@ -9,7 +9,10 @@ Creates both search indexes on the far_corpus collection:
   far_vector_idx — $vectorSearch index
       type: knnVector on the `embedding` field
       dimensions: 512, similarity: cosine
-      filter fields: tenant_id, far_part, clause_number
+      filter fields: tenant_id, source_document.far_part,
+          source_document.clause_number  (far_part/clause_number are nested
+          under source_document on the stored doc — see SourceDocument in
+          app/schemas.py; tenant_id is genuinely top-level)
           (chunk_text deliberately excluded — see build_vector_index_model;
            it stays indexed for sparse retrieval in far_text_idx)
       dynamic mapping: DISABLED — only declared fields indexed (§3)
@@ -66,8 +69,14 @@ def build_vector_index_model() -> SearchIndexModel:
                 # tenant_id MUST be here — Person B's §11 tenant pre-filter runs inside
                 # $vectorSearch, not at the application layer (security control, §6).
                 {"type": "filter", "path": "tenant_id"},
-                {"type": "filter", "path": "far_part"},
-                {"type": "filter", "path": "clause_number"},
+                # far_part / clause_number live NESTED under source_document on the
+                # stored ChunkDocument (app/schemas.py SourceDocument; assembled in
+                # app/ingestion/pipeline.py). A top-level path here would pre-filter
+                # against a field that does not exist, matching zero docs — so the
+                # filter paths must use the dotted source_document.* shape. tenant_id
+                # is genuinely top-level (ChunkDocument.tenant_id) — left as-is.
+                {"type": "filter", "path": "source_document.far_part"},
+                {"type": "filter", "path": "source_document.clause_number"},
                 # NOTE: chunk_text intentionally NOT a vector filter field — deliberate
                 # deviation from ADR-0005 §3 (which lists it among the vector index's
                 # "additional indexed fields"). No ADR retrieval pattern ever filters

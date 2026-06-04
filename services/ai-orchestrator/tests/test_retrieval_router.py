@@ -1,6 +1,7 @@
 """Endpoint tests for POST /retrieve/ — TestClient through the full
 orchestration (identity headers, fallback ladder, audit pairing, response
 assembly) with dense/sparse/reranker/audit mocked. No Mongo/Bedrock required."""
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -159,6 +160,46 @@ def test_no_empty_chunk_ids_in_audit(mocks):
     assert resp.status_code == 200
     record = mocks["audit"].call_args[0][0]
     assert all(record.chunks_retrieved)
+
+
+# --- shared identity key (FIX 10): audit scores pair via fusion.doc_key ---
+
+def test_router_uses_fusion_doc_key_for_audit_pairing(mocks):
+    # The router's audit-score lookup must go through fusion.doc_key — the same
+    # helper fusion dedupes with — so the keys can never drift.
+    with patch(
+        "app.retrieval.router.fusion.doc_key", side_effect=fusion.doc_key
+    ) as spy:
+        resp = client.post("/retrieve/", json=BODY, headers=IDENTITY_HEADERS)
+    assert resp.status_code == 200
+    # Called for the fused-score map build AND each per-chunk audit lookup.
+    assert spy.called
+
+
+def test_audit_score_miss_logs_warning(mocks, caplog):
+    # Simulate identity drift: the reranker hands back a chunk whose key was
+    # never in the fused-score map (what a divergent lookup key would cause).
+    # The router must warn loudly before zeroing the audit score — silent
+    # zeroing is the exact hazard fusion.doc_key exists to prevent.
+    ghost = _doc("ghost", "ghost text never fused")
+    ranked = [
+        (ghost, 0.7),
+        (_doc("d1", "dense one text"), 0.5),
+        (_doc("d2", "dense two text"), 0.3),
+    ]
+    with patch("app.retrieval.reranker.rerank", return_value=(ranked, False)):
+        with caplog.at_level(
+            logging.WARNING, logger="ai-orchestrator.retrieval.router"
+        ):
+            resp = client.post("/retrieve/", json=BODY, headers=IDENTITY_HEADERS)
+
+    assert resp.status_code == 200
+    assert any("audit retrieval_score zeroed" in r.message for r in caplog.records)
+    # Only the ghost chunk is zeroed; real chunks keep their fused scores.
+    record = mocks["audit"].call_args[0][0]
+    assert record.chunks_retrieved[0] == "ghost"
+    assert record.retrieval_scores[0] == 0.0
+    assert all(s > 0 for s in record.retrieval_scores[1:])
 
 
 # --- audit fail-closed ---

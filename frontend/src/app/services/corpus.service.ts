@@ -34,7 +34,7 @@ export class CorpusService {
     form.append('clause_number', metadata.clause_number ?? '');
     form.append('source_url', metadata.source_url ?? '');
     return this.http.post<CorpusUploadResponse>(
-      `${environment.apiGatewayUrl}/corpus/upload`,
+      `${environment.apiGatewayUrl}/api/ai/corpus/upload`,
       form,
     );
   }
@@ -42,7 +42,7 @@ export class CorpusService {
   /** Ingest CO-approved staged documents into the vector store. */
   ingestDocuments(request: CorpusIngestRequest): Observable<CorpusIngestResponse> {
     return this.http.post<CorpusIngestResponse>(
-      `${environment.apiGatewayUrl}/corpus/ingest`,
+      `${environment.apiGatewayUrl}/api/ai/corpus/ingest`,
       request,
     );
   }
@@ -50,7 +50,7 @@ export class CorpusService {
   /** Corpus visibility — chunk counts by tenant / FAR part. */
   getCorpusStats(): Observable<Record<string, unknown>> {
     return this.http.get<Record<string, unknown>>(
-      `${environment.apiGatewayUrl}/corpus/stats`,
+      `${environment.apiGatewayUrl}/api/ai/corpus/stats`,
     );
   }
 }

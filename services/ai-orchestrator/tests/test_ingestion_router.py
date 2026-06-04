@@ -142,9 +142,11 @@ def test_upload_rejects_blank_title(client):
     assert "title" in resp.json()["detail"].lower()
 
 
-@pytest.mark.parametrize("far_part", ["abc", "432", "4.3"])
+@pytest.mark.parametrize("far_part", ["abcd", "2522", "4.3", "abc"])
 def test_upload_rejects_bad_far_part(client, far_part):
     """Malformed but non-empty far_part hits our regex check (422 + message).
+    far_part is now 1-3 digits OR the literal 'DFARS' (finding 8), so 4+ digits
+    ('2522'), non-numeric ('abcd'), and dotted ('4.3') values are rejected.
     (An empty far_part is rejected earlier by FastAPI's required-Form check —
     also 422, but with the framework's own error shape.)"""
     resp = client.post(
@@ -154,6 +156,19 @@ def test_upload_rejects_bad_far_part(client, far_part):
     )
     assert resp.status_code == 422
     assert "far_part" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("far_part", ["4", "43", "252", "DFARS"])
+def test_upload_accepts_far_and_dfars_far_part(client, far_part):
+    """Finding 8: far_part accepts 1-3 digits (FAR '43', DFARS-numbered '252')
+    and the literal 'DFARS' the seed doc's frontmatter stores."""
+    resp = client.post(
+        "/corpus/upload",
+        files=_upload_files(),
+        # Clear subpart/clause so this test isolates far_part validation.
+        data={**_good_form(), "far_part": far_part, "subpart": "", "clause_number": ""},
+    )
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.parametrize("subpart", ["43", "43.", ".1", "43.1.2", "abc"])
@@ -178,15 +193,17 @@ def test_upload_rejects_bad_clause_number(client, clause):
     assert "clause_number" in resp.json()["detail"]
 
 
-@pytest.mark.parametrize("clause", ["43.103", "32.7", "42.15", "43.205-1"])
+@pytest.mark.parametrize("clause", ["43.103", "32.7", "42.15", "43.205-1", "252.232-7003"])
 def test_upload_accepts_valid_far_section_formats(client, clause):
-    """FAR sections can be 1-3 digits after the dot, with an optional -N suffix."""
+    """FAR sections can be 1-3 digits after the dot, with an optional -N suffix.
+    Finding 8: the part may also be 3 digits and the suffix 4 digits, so the
+    DFARS clause '252.232-7003' (the seed doc's clause_number) is accepted."""
     resp = client.post(
         "/corpus/upload",
         files=_upload_files(),
         data={**_good_form(), "subpart": "", "clause_number": clause},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
 
 
 # --- Finding 2: expires_at on upload ---
@@ -424,3 +441,98 @@ def test_preflight_rejects_whole_batch_before_any_ingest(client, fake_db):
     assert "sid-bad" in resp.json()["detail"]
     prepare_mock.assert_not_called()           # nothing embedded
     staging.find_one_and_update.assert_not_called()  # nothing claimed
+
+
+# --- Finding 6: ingestion_audit write semantics per path ---
+
+
+def test_failed_branch_audit_write_failure_does_not_mask_original_error(client, fake_db, caplog):
+    """Finding 6 (error path): when the ingestion pipeline raises, an audit-insert
+    failure must NOT mask the original error — the crafted 500 still surfaces, and
+    the audit failure is logged loudly (§10 no-silent-failure)."""
+    claimed = {
+        "staged_document_id": "sid-f", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body", "status": "ingesting",
+    }
+    staging = _wire_ingest_success(fake_db, claimed)
+    # The audit insert itself blows up on the error path.
+    fake_db["ingestion_audit"].insert_one.side_effect = OperationFailure("audit down")
+
+    # prepare_document raising drives the `except Exception` (FAILED) branch.
+    with patch.object(router_module.pipeline, "prepare_document",
+                      side_effect=RuntimeError("bedrock exploded")), \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}), \
+         caplog.at_level("CRITICAL"):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-f"], "document_version": "2026-06-01"},
+        )
+
+    # The ORIGINAL failure path (the crafted 500) surfaces, not a 503/audit error.
+    assert resp.status_code == 500, resp.text
+    assert "sid-f" in resp.json()["detail"]
+    # The doc was still marked failed (original error-handling preserved).
+    assert staging.update_one.call_args[0][1]["$set"]["status"] == "failed"
+    # The audit failure is visible in the logs (loud, not silent).
+    assert any(
+        r.levelname == "CRITICAL" and "ingestion_audit write FAILED" in r.message
+        for r in caplog.records
+    )
+
+
+def test_success_path_audit_write_failure_fails_closed_503(client, fake_db, caplog):
+    """Finding 6 (success path): chunks are already committed, so an audit-write
+    failure fails closed with a 503 that tells the client NOT to re-ingest —
+    never a misleading 500 — and is logged loudly."""
+    claimed = {
+        "staged_document_id": "sid-s", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body", "status": "ingesting",
+    }
+    staging = _wire_ingest_success(fake_db, claimed)
+    fake_db["ingestion_audit"].insert_one.side_effect = OperationFailure("audit down")
+
+    p_prepare, p_insert = _patch_pipeline()
+    with p_prepare, p_insert, \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}), \
+         caplog.at_level("CRITICAL"):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-s"], "document_version": "2026-06-01"},
+        )
+
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"].lower()
+    assert "do not re-ingest" in detail
+    assert "audit" in detail
+    # The chunks WERE committed before the audit failed (consumed flip ran).
+    assert staging.update_one.call_args[0][1]["$set"]["status"] == "consumed"
+    assert any(
+        r.levelname == "CRITICAL" and "ingestion_audit write FAILED" in r.message
+        for r in caplog.records
+    )
+
+
+def test_success_path_audit_write_success_returns_200(client, fake_db):
+    """Happy path: when the audit insert succeeds the request returns 200 with the
+    chunk totals (the helper does not interfere with the success response)."""
+    claimed = {
+        "staged_document_id": "sid-ok", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body", "status": "ingesting",
+    }
+    _wire_ingest_success(fake_db, claimed)
+
+    p_prepare, p_insert = _patch_pipeline(chunks_inserted=2)
+    with p_prepare, p_insert, \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-ok"], "document_version": "2026-06-01"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["documents_ingested"] == 1
+    assert resp.json()["chunks_inserted"] == 2
+    fake_db["ingestion_audit"].insert_one.assert_called_once()

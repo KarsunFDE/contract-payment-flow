@@ -1,12 +1,35 @@
 """Tests for retrieval/fusion.py — no Mongo/Bedrock required."""
+import logging
+
 import pytest
 from langchain_core.documents import Document
 
-from app.retrieval.fusion import reciprocal_rank_fusion
+from app.retrieval.fusion import doc_key, reciprocal_rank_fusion
 
 
 def _doc(chunk_id: str, text: str = "text") -> Document:
     return Document(page_content=text, metadata={"chunk_id": chunk_id})
+
+
+# --- doc_key (shared identity helper) ---
+
+def test_doc_key_uses_chunk_id_when_present():
+    doc = Document(page_content="some text", metadata={"chunk_id": "far-43-103"})
+    assert doc_key(doc) == "far-43-103"
+
+
+def test_doc_key_falls_back_to_content_prefix_when_missing(caplog):
+    text = "x" * 100
+    doc = Document(page_content=text, metadata={})
+    with caplog.at_level(logging.WARNING, logger="ai-orchestrator.retrieval.fusion"):
+        key = doc_key(doc)
+    assert key == text[:64]
+    assert any("missing chunk_id" in r.message for r in caplog.records)
+
+
+def test_doc_key_empty_chunk_id_falls_back():
+    doc = Document(page_content="content here", metadata={"chunk_id": ""})
+    assert doc_key(doc) == "content here"
 
 
 def test_rrf_returns_all_unique_chunks():
