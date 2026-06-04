@@ -7,6 +7,7 @@ Fallback: unranked fused top-k when the cross-encoder fails (ADR §10).
 from __future__ import annotations
 
 import logging
+import threading
 
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_core.documents import Document
@@ -16,12 +17,17 @@ from app import config
 log = logging.getLogger("ai-orchestrator.retrieval.reranker")
 
 _encoder: HuggingFaceCrossEncoder | None = None
+_encoder_lock = threading.Lock()
 
 
 def _get_encoder() -> HuggingFaceCrossEncoder:
     global _encoder
     if _encoder is None:
-        _encoder = HuggingFaceCrossEncoder(model_name=config.CROSS_ENCODER_MODEL)
+        # Lock so concurrent first requests don't double-load the cross-encoder
+        # model (double-checked under the lock).
+        with _encoder_lock:
+            if _encoder is None:
+                _encoder = HuggingFaceCrossEncoder(model_name=config.CROSS_ENCODER_MODEL)
     return _encoder
 
 

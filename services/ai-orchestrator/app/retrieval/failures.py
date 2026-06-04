@@ -4,10 +4,13 @@ retrieval/failures.py — retry + circuit breaker (ADR-0005 §10, ADR-0004 polic
 Retry: config.MAX_RETRIES total attempts, exponential backoff, 20% jitter.
 Circuit breaker: 3 consecutive MongoDB failures → open; blocks further calls.
   Once open, the breaker stays open for config.CIRCUIT_BREAKER_RESET_SECONDS,
-  then allows a single half-open probe request through. record_success() on that
-  probe closes the breaker; record_failure() re-opens it and refreshes the timer.
-  This guarantees the breaker is self-healing instead of permanently open until
-  process restart.
+  then allows a single half-open probe request through — the probe slot is
+  reserved under _lock, so concurrent requests arriving after the cooldown do
+  not all become "the probe" and hammer a recovering MongoDB. record_success()
+  on that probe closes the breaker; record_failure() re-opens it and refreshes
+  the timer; release_probe() frees the slot when the probing request finishes
+  without reaching a MongoDB outcome. This guarantees the breaker is
+  self-healing instead of permanently open until process restart.
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ _lock = threading.Lock()
 _consecutive_failures: int = 0
 _circuit_open: bool = False
 _opened_at: float | None = None  # monotonic timestamp when breaker last opened
+_probe_in_flight: bool = False  # half-open: one probe reserved at a time
 _CB_THRESHOLD = 3
 
 
@@ -48,11 +52,14 @@ def check_circuit() -> None:
     """Raise CircuitBreakerOpen if the breaker is tripped and still cooling down.
 
     Once the cooldown (config.CIRCUIT_BREAKER_RESET_SECONDS) has elapsed the
-    breaker enters half-open: a single probe request is allowed through. The
-    outcome of that probe (record_success / record_failure) decides whether the
-    breaker closes or re-opens. The fast path read stays lock-free; we only take
-    _lock to make the half-open transition decision atomic.
+    breaker enters half-open: a SINGLE probe request is allowed through — the
+    probe slot is reserved (_probe_in_flight) under _lock before returning, so
+    every other concurrent request keeps getting CircuitBreakerOpen until the
+    probe's outcome (record_success / record_failure) or release_probe() frees
+    the slot. The fast path read stays lock-free; we only take _lock to make
+    the half-open transition decision atomic.
     """
+    global _probe_in_flight
     if not _circuit_open:
         return
 
@@ -61,7 +68,8 @@ def check_circuit() -> None:
         if not _circuit_open:
             return
         elapsed = time.monotonic() - (_opened_at or 0.0)
-        if elapsed >= config.CIRCUIT_BREAKER_RESET_SECONDS:
+        if elapsed >= config.CIRCUIT_BREAKER_RESET_SECONDS and not _probe_in_flight:
+            _probe_in_flight = True  # reserve the single half-open probe slot
             log.warning(
                 "circuit breaker HALF-OPEN — %.1fs elapsed, allowing probe request",
                 elapsed,
@@ -73,17 +81,19 @@ def check_circuit() -> None:
 
 
 def record_success() -> None:
-    global _consecutive_failures, _circuit_open, _opened_at
+    global _consecutive_failures, _circuit_open, _opened_at, _probe_in_flight
     with _lock:
         _consecutive_failures = 0
         _circuit_open = False
         _opened_at = None
+        _probe_in_flight = False
 
 
 def record_failure() -> None:
-    global _consecutive_failures, _circuit_open, _opened_at
+    global _consecutive_failures, _circuit_open, _opened_at, _probe_in_flight
     with _lock:
         _consecutive_failures += 1
+        _probe_in_flight = False
         if _consecutive_failures >= _CB_THRESHOLD:
             _circuit_open = True
             _opened_at = time.monotonic()  # (re)start the cooldown timer
@@ -93,13 +103,27 @@ def record_failure() -> None:
             )
 
 
+def release_probe() -> None:
+    """Free the half-open probe slot without recording an outcome.
+
+    Called by the router when a request that may hold the probe slot finishes
+    without ever reaching a MongoDB success/failure (e.g. a non-Mongo error in
+    both retrieval paths). No-op when no probe is reserved. Without this, a
+    leaked probe slot would block half-open recovery forever.
+    """
+    global _probe_in_flight
+    with _lock:
+        _probe_in_flight = False
+
+
 def reset_circuit() -> None:
     """Test hook — resets breaker state between tests."""
-    global _consecutive_failures, _circuit_open, _opened_at
+    global _consecutive_failures, _circuit_open, _opened_at, _probe_in_flight
     with _lock:
         _consecutive_failures = 0
         _circuit_open = False
         _opened_at = None
+        _probe_in_flight = False
 
 
 def _backoff_seconds(attempt: int) -> float:

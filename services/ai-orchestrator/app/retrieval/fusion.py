@@ -6,9 +6,13 @@ Unit-testable without any MongoDB or Bedrock connection.
 """
 from __future__ import annotations
 
+import logging
+
 from langchain_core.documents import Document
 
 from app import config
+
+log = logging.getLogger("ai-orchestrator.retrieval.fusion")
 
 
 def reciprocal_rank_fusion(
@@ -29,7 +33,14 @@ def reciprocal_rank_fusion(
     docs: dict[str, Document] = {}
 
     def _key(doc: Document) -> str:
-        return doc.metadata.get("chunk_id") or doc.page_content[:64]
+        cid = doc.metadata.get("chunk_id")
+        if cid:
+            return cid
+        # Content-prefix fallback is collision-prone (FAR boilerplate clause
+        # headers share prefixes) — the retriever boundary normalizes chunk_id
+        # on both paths, so reaching this in prod means a chunk lost identity.
+        log.warning("document missing chunk_id — falling back to content-prefix key")
+        return doc.page_content[:64]
 
     for rank, (doc, _) in enumerate(dense_results):
         cid = _key(doc)

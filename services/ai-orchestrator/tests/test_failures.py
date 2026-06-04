@@ -57,6 +57,40 @@ def test_success_on_probe_closes_breaker(monkeypatch):
     failures.check_circuit()  # still closed
 
 
+def test_half_open_admits_single_probe_only(monkeypatch):
+    """Once cooldown elapses only ONE request gets the probe slot — every
+    other concurrent request keeps getting CircuitBreakerOpen until the
+    probe's outcome is recorded."""
+    monkeypatch.setattr(failures.config, "CIRCUIT_BREAKER_RESET_SECONDS", 0.0)
+    for _ in range(failures._CB_THRESHOLD):
+        failures.record_failure()
+    failures.check_circuit()  # first caller reserves the probe slot
+    with pytest.raises(failures.CircuitBreakerOpen):
+        failures.check_circuit()  # second caller must NOT also be "the probe"
+
+
+def test_release_probe_frees_slot_without_outcome(monkeypatch):
+    monkeypatch.setattr(failures.config, "CIRCUIT_BREAKER_RESET_SECONDS", 0.0)
+    for _ in range(failures._CB_THRESHOLD):
+        failures.record_failure()
+    failures.check_circuit()  # probe reserved
+    # Probe request finished without a Mongo outcome (e.g. non-Mongo error) —
+    # the slot must be freed so half-open recovery is not blocked forever.
+    failures.release_probe()
+    failures.check_circuit()  # next caller can take the probe slot
+
+
+def test_probe_failure_frees_slot_and_reopens(monkeypatch):
+    monkeypatch.setattr(failures.config, "CIRCUIT_BREAKER_RESET_SECONDS", 999.0)
+    for _ in range(failures._CB_THRESHOLD):
+        failures.record_failure()
+    monkeypatch.setattr(failures.config, "CIRCUIT_BREAKER_RESET_SECONDS", 0.0)
+    failures.check_circuit()  # probe reserved
+    failures.record_failure()  # probe failed → re-open, slot freed
+    assert failures._probe_in_flight is False
+    assert failures._circuit_open is True
+
+
 def test_failure_on_probe_reopens_and_refreshes_timer(monkeypatch):
     monkeypatch.setattr(failures.config, "CIRCUIT_BREAKER_RESET_SECONDS", 999.0)
     for _ in range(failures._CB_THRESHOLD):

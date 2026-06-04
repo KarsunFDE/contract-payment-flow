@@ -11,6 +11,7 @@ app layer (ADR-0005 §11 security control, §6).
 from __future__ import annotations
 
 import logging
+import threading
 
 import boto3
 from langchain_aws import BedrockEmbeddings
@@ -24,19 +25,24 @@ from app.retrieval.failures import with_retry
 log = logging.getLogger("ai-orchestrator.retrieval.retriever")
 
 _embeddings: BedrockEmbeddings | None = None
+_embeddings_lock = threading.Lock()
 
 
 def _get_embeddings() -> BedrockEmbeddings:
     global _embeddings
     if _embeddings is None:
-        _embeddings = BedrockEmbeddings(
-            model_id=config.EMBEDDING_MODEL_ID,
-            region_name=config.AWS_REGION,
-            model_kwargs={
-                "dimensions": config.EMBEDDING_DIMENSIONS,
-                "normalize": config.EMBEDDING_NORMALIZE,
-            },
-        )
+        # Lock so concurrent first requests don't double-initialize the
+        # Bedrock client (double-checked under the lock).
+        with _embeddings_lock:
+            if _embeddings is None:
+                _embeddings = BedrockEmbeddings(
+                    model_id=config.EMBEDDING_MODEL_ID,
+                    region_name=config.AWS_REGION,
+                    model_kwargs={
+                        "dimensions": config.EMBEDDING_DIMENSIONS,
+                        "normalize": config.EMBEDDING_NORMALIZE,
+                    },
+                )
     return _embeddings
 
 
@@ -71,11 +77,27 @@ def dense_search(
         text_key="chunk_text",
         embedding_key="embedding",
     )
-    return vector_store.similarity_search_with_score(
+    results = vector_store.similarity_search_with_score(
         query=query,
         k=k,
         pre_filter={"tenant_id": {"$in": tenant_ids}},
     )
+    # Normalize chunk_id at the retriever boundary (mirrors sparse_search):
+    # MongoDBAtlasVectorSearch is not guaranteed to surface chunk_id in
+    # metadata, and downstream fusion/audit key on it. Without this, fusion's
+    # page_content[:64] fallback can collide on FAR boilerplate prefixes and
+    # the audit trail logs empty-string chunk IDs for dense-origin chunks.
+    for doc, _ in results:
+        if not doc.metadata.get("chunk_id"):
+            mongo_id = doc.metadata.get("_id")
+            if mongo_id is not None:
+                doc.metadata["chunk_id"] = str(mongo_id)
+            else:
+                log.warning(
+                    "dense result missing chunk_id and _id — fusion/audit will "
+                    "fall back to content-prefix identity"
+                )
+    return results
 
 
 @with_retry
