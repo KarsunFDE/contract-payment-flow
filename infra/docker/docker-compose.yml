@@ -115,6 +115,8 @@ services:
       # (or `--env-file .env` from repo root). Empty string if unset, so the
       # mock-Bedrock path still works without real creds.
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+    volumes:
+      - ../../data:/app/data
     depends_on:
       mongodb:
         condition: service_healthy
