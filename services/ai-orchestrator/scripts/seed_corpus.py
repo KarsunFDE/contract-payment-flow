@@ -33,7 +33,13 @@ logging.basicConfig(
 log = logging.getLogger("ai-orchestrator.scripts.seed_corpus")
 
 # Repo root from this file: scripts/ -> ai-orchestrator/ -> services/ -> root.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# Inside the container the layout is /app/scripts/ (too shallow for parents[3]);
+# fall back to the CWD so `docker cp data/seed ...:/app/data/` + a run from /app
+# resolves the same relative path. An explicit CLI seed_dir always wins.
+try:
+    _REPO_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    _REPO_ROOT = Path.cwd()
 _DEFAULT_SEED_DIR = _REPO_ROOT / "data" / "seed" / "far-part-42-43-32"
 
 
