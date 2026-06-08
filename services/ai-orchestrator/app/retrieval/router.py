@@ -2,17 +2,20 @@
 retrieval/router.py — read-path endpoint (ADR-0005 Phase 1).
 
 POST /retrieve  — query, sf30_block, contract_id (body) +
-                  X-Tenant-Id / X-User-Id (gateway-asserted identity) →
+                  X-Tenant-Id / X-User-Id / X-User-Role (gateway-asserted
+                  identity) →
                   hybrid retrieve → RRF fuse → rerank → audit log → response
 
 Identity is NEVER read from the request body (ADR-0005 §11): the API gateway
-validates the caller's JWT and injects X-Tenant-Id / X-User-Id from the
-verified claims (agency_id / sub), stripping any client-supplied copies of
-those headers. This service is reachable only on the compose-internal
+validates the caller's JWT and injects X-Tenant-Id / X-User-Id / X-User-Role
+from the verified claims (agency_id / sub / role), stripping any client-supplied
+copies of those headers. This service is reachable only on the compose-internal
 network, so the headers are trusted as gateway-asserted identity. Requests
-without both headers are rejected 401 — an unauthenticated retrieval must
-not happen, and the append-only audit trail (FAR 1.602-1 — CO authority)
-must never carry self-asserted identity.
+without all three headers are rejected 401 — an unauthenticated retrieval must
+not happen, and the append-only audit trail (FAR 1.602-1 — CO authority) must
+never carry self-asserted identity NOR a defaulted role: the caller's real role
+is recorded so a non-CO retrieval is never misattributed as CO activity
+(review finding).
 
 contract_id is audit metadata only: ADR-0005 §11 — "No contract-instance
 data enters the vector index regardless of tenant scope" — so there is no
@@ -43,6 +46,7 @@ router = APIRouter(prefix="/retrieve", tags=["retrieval"])
 # defense-in-depth (they end up in Mongo filters and the audit collection).
 _TENANT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9.@_:-]{1,128}$")
+_ROLE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 # Query length cap: bounds Bedrock embedding cost, Atlas $search work, and
 # cross-encoder input before any of them run.
@@ -85,16 +89,27 @@ def status() -> dict[str, str]:
     return {"router": "retrieval", "status": "active"}
 
 
-def _require_identity(tenant_id: str | None, user_id: str | None) -> tuple[str, str]:
-    """Validate gateway-asserted identity headers; 401 on absence or bad shape."""
-    if not tenant_id or not user_id:
+def _require_identity(
+    tenant_id: str | None, user_id: str | None, role: str | None
+) -> tuple[str, str, str]:
+    """Validate gateway-asserted identity headers; 401 on absence or bad shape.
+
+    Role is required alongside tenant/user: the audit record stores the real
+    role, so a blank/absent role must fail closed rather than fall back to a
+    CO-authority default (review finding — falsified authority record).
+    """
+    if not tenant_id or not user_id or not role:
         raise HTTPException(
             status_code=401,
-            detail="Missing gateway identity headers (X-Tenant-Id / X-User-Id)",
+            detail="Missing gateway identity headers (X-Tenant-Id / X-User-Id / X-User-Role)",
         )
-    if not _TENANT_ID_RE.fullmatch(tenant_id) or not _USER_ID_RE.fullmatch(user_id):
+    if (
+        not _TENANT_ID_RE.fullmatch(tenant_id)
+        or not _USER_ID_RE.fullmatch(user_id)
+        or not _ROLE_RE.fullmatch(role)
+    ):
         raise HTTPException(status_code=401, detail="Malformed identity headers")
-    return tenant_id, user_id
+    return tenant_id, user_id, role
 
 
 @router.post("/", response_model=RetrieveResponse)
@@ -102,6 +117,7 @@ def retrieve(
     request: RetrieveRequest,
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_role: str | None = Header(default=None, alias="X-User-Role"),
 ) -> RetrieveResponse:
     """Hybrid FAR corpus retrieval for a single SF-30 block query.
 
@@ -111,7 +127,7 @@ def retrieve(
     4. cross-encoder rerank → top 8
     5. structured audit log write (fail-closed — no unaudited results)
     """
-    tenant_id, user_id = _require_identity(x_tenant_id, x_user_id)
+    tenant_id, user_id, role = _require_identity(x_tenant_id, x_user_id, x_user_role)
 
     correlation_id = request.correlation_id or str(uuid4())
     start = time.monotonic()
@@ -285,6 +301,7 @@ def retrieve(
         contract_id=request.contract_id,
         tenant_id=tenant_id,
         user_id=user_id,
+        role=role,
         query_text=request.query,
         retrieval_strategy=retrieval_strategy,
         chunks_retrieved=chunk_ids,

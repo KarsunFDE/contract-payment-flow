@@ -8,10 +8,13 @@ boundary — these dependencies are the boundary (review findings 1/2/3).
 Identity source: the API gateway authenticates the JWT and forwards the verified
 principal as trusted headers (X-User-Id / X-User-Role / X-User-Name /
 X-Agency-Id). The orchestrator trusts these ONLY because it is network-isolated
-behind the gateway (ADR-0005 §6 — port 8000 is never publicly exposed). This is
-the single integration point: once the gateway auth/StripPrefix story is
-finished, swap the header read below for direct JWT validation without touching
-any caller.
+behind the gateway (ADR-0005 §6 — port 8000 is never publicly exposed). That
+isolation is enforced, not assumed: the ai-orchestrator service in
+infra/docker/docker-compose.yml uses `expose` (compose-internal network), NOT a
+host `ports:` publish, so no outside caller can reach port 8000 and spoof
+X-User-Role (security review finding 1). This is the single integration point:
+once the gateway auth/StripPrefix story is finished, swap the header read below
+for direct JWT validation without touching any caller.
 
 Absent/blank identity → 401. Authenticated but unauthorized role → 403.
 """

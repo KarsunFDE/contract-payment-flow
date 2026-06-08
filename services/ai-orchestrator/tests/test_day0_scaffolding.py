@@ -59,13 +59,14 @@ def test_chunk_document_provenance_fields():
             url="https://www.acquisition.gov/far/43.103",
         ),
         document_version="2026-06-01",
-        ingested_by=IngestedBy(user_id="co-001"),
+        ingested_by=IngestedBy(user_id="co-001", role="contracting_officer"),
         embedding_model=config.EMBEDDING_MODEL_ID,
         tenant_id=config.GLOBAL_TENANT_ID,
         embedding=[0.0] * config.EMBEDDING_DIMENSIONS,
     )
     assert chunk.chunk_id  # auto-generated UUID
     assert chunk.embedding_dimensions == 512
+    # role is required and stored verbatim — no CO default.
     assert chunk.ingested_by.role == "contracting_officer"
     assert chunk.ingested_by.service == "ai-orchestrator-ingestion"
     assert chunk.ingestion_timestamp.tzinfo is not None
@@ -79,13 +80,15 @@ def test_retrieval_audit_record_fields():
         contract_id="W912-26-C-0001",
         tenant_id=config.GLOBAL_TENANT_ID,
         user_id="co-001",
+        role="sys_admin",
         query_text="extend period of performance 90 days",
         retrieval_strategy="hybrid_rrf_reranked",
         embedding_model=config.EMBEDDING_MODEL_ID,
         latency_ms=420,
     )
     assert record.retrieval_id  # auto-generated UUID
-    assert record.role == "contracting_officer"
+    # role is required and stored verbatim — no 'contracting_officer' default.
+    assert record.role == "sys_admin"
     assert record.cache_hit is False
     assert record.confidence is None  # Phase 2 fills this
     assert record.timestamp <= datetime.now(timezone.utc)

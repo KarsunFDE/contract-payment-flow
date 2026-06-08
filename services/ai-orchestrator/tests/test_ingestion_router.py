@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -249,7 +249,8 @@ def _wire_ingest_success(fake_db, claimed_doc, *, preflight_status="staged_await
     return staging
 
 
-def _patch_pipeline(chunks_inserted=3, chunks_discarded=0, cache_hits=1, title="FAR 43"):
+def _patch_pipeline(chunks_inserted=3, chunks_updated=0, chunks_discarded=0,
+                    cache_hits=1, title="FAR 43"):
     """Patch the router's pipeline seam (prepare_document + insert_records).
 
     build_summary is left real — it derives the summary from these two."""
@@ -259,7 +260,7 @@ def _patch_pipeline(chunks_inserted=3, chunks_discarded=0, cache_hits=1, title="
         "cache_hits": cache_hits,
         "source_title": title,
     }
-    result = MagicMock(upserted_count=chunks_inserted, modified_count=0)
+    result = MagicMock(upserted_count=chunks_inserted, modified_count=chunks_updated)
     return (
         patch.object(router_module.pipeline, "prepare_document", return_value=prepared),
         patch.object(router_module.pipeline, "insert_records", return_value=result),
@@ -536,3 +537,143 @@ def test_success_path_audit_write_success_returns_200(client, fake_db):
     assert resp.json()["documents_ingested"] == 1
     assert resp.json()["chunks_inserted"] == 2
     fake_db["ingestion_audit"].insert_one.assert_called_once()
+
+
+def test_reingest_reports_chunks_updated(client, fake_db):
+    """Review finding: a re-ingest that REPLACES chunks (modified_count > 0,
+    upserted_count == 0) must surface chunks_updated, not silently report
+    '0 chunks inserted' to the approving operator."""
+    claimed = {
+        "staged_document_id": "sid-re", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body", "status": "ingesting",
+    }
+    _wire_ingest_success(fake_db, claimed)
+
+    # Records are non-empty (so the insert runs), but the upsert replaces rather
+    # than inserts: upserted_count=0, modified_count=3 — the re-ingest case.
+    prepared = {
+        "records": [{"chunk_ref": f"ref-{i}"} for i in range(3)],
+        "chunks_discarded": 0, "cache_hits": 0, "source_title": "FAR 43",
+    }
+    result = MagicMock(upserted_count=0, modified_count=3)
+    with patch.object(router_module.pipeline, "prepare_document", return_value=prepared), \
+         patch.object(router_module.pipeline, "insert_records", return_value=result), \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-re"], "document_version": "2026-06-01"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["chunks_inserted"] == 0
+    assert body["chunks_updated"] == 3
+
+
+def test_failed_branch_with_committed_docs_fails_closed_503(client, fake_db, caplog):
+    """Review finding: when EARLIER docs in the batch are already committed and a
+    LATER doc fails, an audit-write failure must fail closed (503) — committed
+    chunks with no durable audit record are a fail-open. (Contrast with the
+    single-doc failure above, where nothing committed and the original 500
+    surfaces.)"""
+    claimed1 = {
+        "staged_document_id": "sid-1", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body1", "status": "ingesting",
+    }
+    claimed2 = {**claimed1, "staged_document_id": "sid-2", "text": "body2"}
+
+    staging = fake_db["corpus_staging"]
+    # Pre-flight: both docs claimable.
+    staging.find.return_value = [
+        {**claimed1, "status": "staged_awaiting_ingest"},
+        {**claimed2, "status": "staged_awaiting_ingest"},
+    ]
+    # Each claim returns its own doc.
+    staging.find_one_and_update.side_effect = [claimed1, claimed2]
+    # The audit insert itself fails on the error path.
+    fake_db["ingestion_audit"].insert_one.side_effect = OperationFailure("audit down")
+
+    prepared_ok = {
+        "records": [{"chunk_ref": "r1", "chunk_id": "c1"}],
+        "chunks_discarded": 0, "cache_hits": 0, "source_title": "FAR 43",
+    }
+    insert_result = MagicMock(upserted_count=1, modified_count=0)
+
+    # First doc commits; second doc's prepare raises → except Exception branch
+    # with per_doc_summaries already non-empty.
+    with patch.object(router_module.pipeline, "prepare_document",
+                      side_effect=[prepared_ok, RuntimeError("bedrock exploded")]), \
+         patch.object(router_module.pipeline, "insert_records", return_value=insert_result), \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}), \
+         caplog.at_level("CRITICAL"):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-1", "sid-2"], "document_version": "2026-06-01"},
+        )
+
+    # Committed chunks + failed audit → fail closed, NOT the crafted 500.
+    assert resp.status_code == 503, resp.text
+    assert "re-ingest" in resp.json()["detail"].lower()
+    assert any(
+        r.levelname == "CRITICAL" and "ingestion_audit write FAILED" in r.message
+        for r in caplog.records
+    )
+
+
+# --- corpus_stats tenant isolation (review finding) ---
+
+
+def _stats_request(principal):
+    """GET /corpus/stats with require_corpus_admin overridden to `principal`
+    and far_corpus mocked; returns (response, mock_corpus)."""
+    corpus = MagicMock()
+    corpus.aggregate.return_value = []
+    corpus.distinct.return_value = []
+    app.dependency_overrides[require_corpus_admin] = lambda: principal
+    try:
+        with patch("app.db.get_far_corpus", return_value=corpus):
+            resp = TestClient(app).get("/corpus/stats")
+    finally:
+        app.dependency_overrides.pop(require_corpus_admin, None)
+    return resp, corpus
+
+
+def test_stats_scopes_non_sysadmin_to_global_and_own_agency():
+    principal = CorpusPrincipal(
+        user_id="co-1", role="contracting_officer", agency_id="agency_x"
+    )
+    resp, corpus = _stats_request(principal)
+    assert resp.status_code == 200
+
+    scope = {"tenant_id": {"$in": ["far_corpus_global", "agency_x"]}}
+    # Aggregation is fronted by a $match scoping to global + own agency.
+    pipeline_stages = corpus.aggregate.call_args[0][0]
+    assert pipeline_stages[0] == {"$match": scope}
+    # distinct is scoped with the SAME filter so model versions can't leak.
+    assert corpus.distinct.call_args == call("embedding_model_version", scope)
+
+
+def test_stats_sysadmin_sees_whole_corpus():
+    principal = CorpusPrincipal(user_id="admin", role="sys_admin", agency_id="")
+    resp, corpus = _stats_request(principal)
+    assert resp.status_code == 200
+
+    # No $match stage — sys_admin sees every tenant.
+    pipeline_stages = corpus.aggregate.call_args[0][0]
+    assert not any("$match" in stage for stage in pipeline_stages)
+    # distinct called with no tenant filter.
+    assert corpus.distinct.call_args == call("embedding_model_version")
+
+
+def test_stats_requires_identity():
+    """Without gateway identity the endpoint must not return corpus-wide stats."""
+    corpus = MagicMock()
+    corpus.aggregate.return_value = []
+    corpus.distinct.return_value = []
+    # No dependency override → real require_corpus_admin runs; no headers → 401.
+    with patch("app.db.get_far_corpus", return_value=corpus):
+        resp = TestClient(app).get("/corpus/stats")
+    assert resp.status_code == 401
+    corpus.aggregate.assert_not_called()

@@ -30,7 +30,7 @@ def far_source() -> SourceDocument:
 
 @pytest.fixture
 def co_identity() -> IngestedBy:
-    return IngestedBy(user_id="co-001")
+    return IngestedBy(user_id="co-001", role="contracting_officer")
 
 
 # --- shared test helpers ---
@@ -82,9 +82,10 @@ def test_ingest_document_inserts_full_provenance(far_source, co_identity):
     """Every inserted doc carries the complete §12 field set.
 
     Mock chunker + embedder + far_corpus collection; assert each upserted
-    document (a ReplaceOne replacement) validates as ChunkDocument and carries
-    embedding_model, embedding_dimensions=512, tenant_id, ingestion_timestamp,
-    ingested_by — plus the deterministic chunk_ref dedup key.
+    document (an UpdateOne $set + $setOnInsert spec) validates as ChunkDocument
+    and carries embedding_model, embedding_dimensions=512, tenant_id,
+    ingestion_timestamp, ingested_by — plus the deterministic chunk_ref dedup
+    key, with chunk_id pinned to $setOnInsert.
     """
     mock_collection = MagicMock()
     mock_collection.bulk_write.return_value = MagicMock(upserted_count=2, modified_count=0)
@@ -107,16 +108,27 @@ def test_ingest_document_inserts_full_provenance(far_source, co_identity):
     assert len(ops) == 2
 
     chunk_refs = set()
+    chunk_ids = set()
     for op in ops:
-        # ReplaceOne stores its filter / replacement / upsert flag separately.
-        replacement = op._doc
+        # UpdateOne stores its filter / update spec / upsert flag separately.
         chunk_filter = op._filter
+        update = op._doc
+        set_doc = update["$set"]
+        on_insert = update["$setOnInsert"]
         # Op is keyed on the deterministic chunk_ref dedup key.
-        assert chunk_filter == {"chunk_ref": replacement["chunk_ref"]}
+        assert chunk_filter == {"chunk_ref": set_doc["chunk_ref"]}
         assert op._upsert is True
-        chunk_refs.add(replacement["chunk_ref"])
+        chunk_refs.add(set_doc["chunk_ref"])
 
-        raw = {k: v for k, v in replacement.items() if k != "chunk_ref"}
+        # chunk_id is set ONLY on insert (finding 2) so a re-ingest keyed on the
+        # same chunk_ref never overwrites the id prior audit records cite.
+        assert "chunk_id" in on_insert
+        assert "chunk_id" not in set_doc
+        chunk_ids.add(on_insert["chunk_id"])
+
+        # Reassemble the full §12 field set to validate it as a ChunkDocument.
+        raw = {k: v for k, v in set_doc.items() if k != "chunk_ref"}
+        raw["chunk_id"] = on_insert["chunk_id"]
         doc = ChunkDocument(**raw)
         assert doc.embedding_model == config.EMBEDDING_MODEL_ID
         assert doc.embedding_dimensions == 512
@@ -128,6 +140,8 @@ def test_ingest_document_inserts_full_provenance(far_source, co_identity):
 
     # Distinct sequences → distinct deterministic chunk_refs (no collision).
     assert len(chunk_refs) == 2
+    # Each chunk gets its own chunk_id (set-on-insert).
+    assert len(chunk_ids) == 2
 
     assert result["chunks_inserted"] == 2
     assert result["chunks_updated"] == 0
@@ -220,7 +234,7 @@ def test_ingest_document_default_tenant_is_global(far_source, co_identity):
 
     ops = mock_collection.bulk_write.call_args[0][0]
     for op in ops:
-        assert op._doc["tenant_id"] == config.GLOBAL_TENANT_ID
+        assert op._doc["$set"]["tenant_id"] == config.GLOBAL_TENANT_ID
 
 
 def test_embedding_failure_does_not_insert(far_source, co_identity):

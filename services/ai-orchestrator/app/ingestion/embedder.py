@@ -52,13 +52,21 @@ def build_bedrock_embeddings() -> BedrockEmbeddings:
 
 
 def cache_key_for_text(text: str) -> str:
-    """Deterministic cache key: model ID + version + content hash.
+    """Deterministic cache key: model ID + version + dimensions + content hash.
 
     Namespacing by model ID/version means a model upgrade can never serve
-    stale vectors (§14 invalidation rule, §8 anti-pattern).
+    stale vectors (§14 invalidation rule, §8 anti-pattern). EMBEDDING_DIMENSIONS
+    is in the key too (review finding): dimensions are independently
+    configurable, so a 512→1024 change WITHOUT a version bump would otherwise
+    reuse cached 512-d vectors for 1024-d queries — a silent dimension mismatch.
+    Different dimensions now produce different keys, so a stale-dim vector is
+    never served.
     """
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return f"{config.EMBEDDING_MODEL_ID}:{config.EMBEDDING_MODEL_VERSION}:{digest}"
+    return (
+        f"{config.EMBEDDING_MODEL_ID}:{config.EMBEDDING_MODEL_VERSION}"
+        f":{config.EMBEDDING_DIMENSIONS}:{digest}"
+    )
 
 
 class MongoCachedEmbedder:
@@ -135,8 +143,10 @@ class MongoCachedEmbedder:
                     {
                         "$set": {
                             "embedding": vector,
-                            # Version tag enables targeted delete on model change (§14).
+                            # Version + dimensions tags enable a targeted purge on
+                            # model OR dimension change (§14, review finding).
                             "embedding_model_version": config.EMBEDDING_MODEL_VERSION,
+                            "embedding_dimensions": config.EMBEDDING_DIMENSIONS,
                         }
                     },
                     upsert=True,
@@ -167,16 +177,28 @@ def build_cached_embedder() -> MongoCachedEmbedder:
 
 
 def purge_cache_for_old_model_versions() -> int:
-    """Delete cache entries whose model version != current config version.
+    """Delete cache entries whose model version OR dimensions != current config.
 
     Called manually on embedding model change (ADR-0005 §9 / §14 migration).
-    Stale vectors from the old model are incompatible with new query embeddings
-    and would silently degrade retrieval precision (§8 anti-pattern).
+    Stale vectors from the old model — or from a different dimension count — are
+    incompatible with new query embeddings and would silently degrade retrieval
+    precision (§8 anti-pattern). The dimensions clause (review finding) also
+    reaps entries written before dimensions were tracked: those docs lack the
+    embedding_dimensions field, and Mongo's $ne matches a missing field, so they
+    are purged on the next run.
     Returns the number of purged entries.
     """
     result = db.get_embedding_cache().delete_many(
-        # $ne current version — targets all entries from superseded model versions.
-        {"embedding_model_version": {"$ne": config.EMBEDDING_MODEL_VERSION}}
+        # Any entry from a superseded model version OR a different dimension count.
+        {"$or": [
+            {"embedding_model_version": {"$ne": config.EMBEDDING_MODEL_VERSION}},
+            {"embedding_dimensions": {"$ne": config.EMBEDDING_DIMENSIONS}},
+        ]}
     )
-    log.info("purged %d stale cache entries (model version != %s)", result.deleted_count, config.EMBEDDING_MODEL_VERSION)
+    log.info(
+        "purged %d stale cache entries (model version != %s or dimensions != %d)",
+        result.deleted_count,
+        config.EMBEDDING_MODEL_VERSION,
+        config.EMBEDDING_DIMENSIONS,
+    )
     return result.deleted_count

@@ -106,6 +106,10 @@ class IngestResponse(BaseModel):
     """Returned by /corpus/ingest — per-document chunk summary."""
     documents_ingested: int
     chunks_inserted: int
+    # Chunks replaced on re-ingest (review finding): without this the UI shows
+    # "0 chunks inserted" on a re-ingest that actually mutated the corpus,
+    # misrepresenting the mutation to the approving operator.
+    chunks_updated: int
     chunks_discarded: int
     cache_hits: int
 
@@ -328,6 +332,7 @@ def ingest_staged_documents(
     totals: dict[str, int] = {
         "documents_ingested": 0,
         "chunks_inserted": 0,
+        "chunks_updated": 0,
         "chunks_discarded": 0,
         "cache_hits": 0,
     }
@@ -447,6 +452,7 @@ def ingest_staged_documents(
 
             totals["documents_ingested"] += 1
             totals["chunks_inserted"] += summary.get("chunks_inserted", 0)
+            totals["chunks_updated"] += summary.get("chunks_updated", 0)
             totals["chunks_discarded"] += summary.get("chunks_discarded", 0)
             totals["cache_hits"] += summary.get("cache_hits", 0)
             per_doc_summaries.append(summary)
@@ -471,11 +477,16 @@ def ingest_staged_documents(
             partial_record["event"] = "corpus_ingestion_partial"
             partial_record["ingested_by"] = ingested_by.model_dump()
             partial_record["tenant_id"] = tenant_id
-            # Error path: don't let an audit-write failure mask the claim-time
-            # 404/409 we're about to re-raise (finding 6).
+            # Fail CLOSED here (review finding): this branch only runs when
+            # per_doc_summaries is non-empty, i.e. earlier docs are ALREADY
+            # committed to the corpus. Letting an audit-write failure slide
+            # would leave committed mutations with no durable audit record — the
+            # exact fail-open the success path guards against. On audit success
+            # this returns normally and we re-raise the claim-time 404/409
+            # below; on audit failure it raises 503 (do-not-retry) instead.
             _write_ingestion_audit(
                 partial_record,
-                fail_closed=False,
+                fail_closed=True,
                 correlation=f"tenant_id={tenant_id} current_sid={current_sid!r}",
             )
         raise
@@ -503,12 +514,18 @@ def ingest_staged_documents(
         fail_record["event"] = "corpus_ingestion_failed"
         fail_record["ingested_by"] = ingested_by.model_dump()
         fail_record["tenant_id"] = tenant_id
-        # Error path: an audit-write failure here must NOT mask the original
-        # ingestion exception — _write_ingestion_audit logs loudly and returns so
-        # we still surface the crafted 500 below (finding 6).
+        # Fail closed ONLY when earlier docs were already committed (review
+        # finding): committed chunks with no durable audit record are the same
+        # fail-open the success path guards against, so if per_doc_summaries is
+        # non-empty an audit-write failure must raise 503 (do-not-retry) rather
+        # than be swallowed. When nothing committed yet (failed on the first
+        # doc), keep the original semantics: don't let an audit-write failure
+        # mask the real ingestion exception — log loudly, return, surface the
+        # crafted 500 below (finding 6).
+        committed_before_failure = bool(per_doc_summaries)
         _write_ingestion_audit(
             fail_record,
-            fail_closed=False,
+            fail_closed=committed_before_failure,
             correlation=f"tenant_id={tenant_id} failed_document_id={current_sid!r}",
         )
         raise HTTPException(
@@ -538,15 +555,33 @@ def ingest_staged_documents(
 
 
 @router.get("/stats")
-def corpus_stats() -> dict:
+def corpus_stats(principal: CorpusPrincipal = Depends(require_corpus_admin)) -> dict:
     """Chunk counts by tenant_id / far_part + embedding model versions.
 
     Supports §9 routine monitoring (index size scale signal) and gives the
     frontend upload page something to display.
+
+    Tenant isolation (review finding, ADR-0005 §11): the unscoped version leaked
+    every tenant's tenant_id / FAR parts / chunk counts / model versions to any
+    caller. Now it requires gateway identity and scopes the aggregation — a
+    non-sys_admin sees only the global FAR corpus plus their own agency_id; an
+    explicitly authorized sys_admin sees the whole corpus.
     """
     corpus = db.get_far_corpus()
 
-    agg = list(corpus.aggregate([
+    # Build the tenant filter once and reuse it for both the aggregation and the
+    # model-version distinct so neither leaks across tenants.
+    scope: dict | None = None
+    if principal.role != "sys_admin":
+        visible = [config.GLOBAL_TENANT_ID]
+        if principal.agency_id:
+            visible.append(principal.agency_id)
+        scope = {"tenant_id": {"$in": visible}}
+
+    pipeline_stages: list[dict] = []
+    if scope is not None:
+        pipeline_stages.append({"$match": scope})
+    pipeline_stages.extend([
         {
             "$group": {
                 "_id": {
@@ -557,9 +592,15 @@ def corpus_stats() -> dict:
             }
         },
         {"$sort": {"_id.tenant_id": 1, "_id.far_part": 1}},
-    ]))
+    ])
 
-    model_versions = corpus.distinct("embedding_model_version")
+    agg = list(corpus.aggregate(pipeline_stages))
+
+    model_versions = (
+        corpus.distinct("embedding_model_version")
+        if scope is None
+        else corpus.distinct("embedding_model_version", scope)
+    )
 
     by_tenant_and_part = [
         {

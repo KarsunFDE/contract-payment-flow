@@ -33,7 +33,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pymongo import ReplaceOne
+from pymongo import UpdateOne
 
 from app import config, db
 from app.ingestion import chunker, embedder
@@ -198,11 +198,22 @@ def prepare_document(
 
     # Deterministic chunk_ref upsert key so that re-ingest / crash-retry /
     # concurrent ingest is a no-op rather than duplicating chunks.
+    #
+    # The key includes doc_digest — a SHA-256 of the source text (review
+    # finding 3). source_url is optional (the /upload router defaults it to
+    # ""), so without the digest two DIFFERENT uploads sharing title + tenant +
+    # version would fall back to the same title component and collide on
+    # chunk_ref per sequence, silently clobbering one document with the other.
+    # Binding an immutable per-document content identity removes the collision
+    # while preserving idempotency: re-ingesting byte-identical text yields the
+    # same digest → same chunk_ref → the upsert stays a no-op.
+    doc_digest = hashlib.sha256(document_text.encode("utf-8")).hexdigest()
     records = [doc.model_dump() for doc in chunk_docs]
     for record in records:
         canonical = "\x1f".join([
             tenant_id,
             source.url or source.title,
+            doc_digest,
             document_version,
             str(record["chunk_sequence"]),
         ])
@@ -222,14 +233,29 @@ def insert_records(records: list[dict], session=None):
     Keyed on the deterministic chunk_ref so reruns converge on the same
     documents. Pass a pymongo ClientSession to make the write part of a
     caller-managed transaction (the router pairs it with the staging
-    status flip); without one, each ReplaceOne is independently atomic
+    status flip); without one, each UpdateOne is independently atomic
     and the unordered bulk_write is NOT atomic as a whole.
+
+    chunk_id is written via $setOnInsert, NOT $set (review finding 2): the
+    upsert is keyed on chunk_ref, so the chunk_id is minted once on first
+    insert and never overwritten. A re-ingest / crash-retry / stale-claim
+    re-run updates the chunk's content/embedding ($set) but keeps the
+    original chunk_id, so chunk_ids already cited in prior
+    RetrievalAuditRecords still resolve to the corpus chunk.
 
     Returns:
         pymongo BulkWriteResult (upserted_count / modified_count).
     """
     corpus = db.get_far_corpus()
-    ops = [ReplaceOne({"chunk_ref": r["chunk_ref"]}, r, upsert=True) for r in records]
+    ops = []
+    for r in records:
+        on_insert = {"chunk_id": r["chunk_id"]}
+        to_set = {k: v for k, v in r.items() if k != "chunk_id"}
+        ops.append(UpdateOne(
+            {"chunk_ref": r["chunk_ref"]},
+            {"$set": to_set, "$setOnInsert": on_insert},
+            upsert=True,
+        ))
     return corpus.bulk_write(ops, ordered=False, session=session)
 
 
@@ -308,17 +334,19 @@ def ingest_seed_corpus(seed_dir: str = "data/seed/far-part-42-43-32") -> dict:
         Aggregate summary across all seed files.
     """
     seed_path = Path(seed_dir)
+    empty = {"files_ingested": 0, "chunks_inserted": 0, "chunks_updated": 0,
+             "chunks_discarded": 0, "cache_hits": 0}
     if not seed_path.is_dir():
         log.warning("ingest_seed_corpus: seed directory %r not found — skipping", seed_dir)
-        return {"files_ingested": 0, "chunks_inserted": 0, "chunks_discarded": 0, "cache_hits": 0}
+        return dict(empty)
 
     md_files = sorted(p for p in seed_path.glob("*.md") if p.name.lower() != "readme.md")
     if not md_files:
         log.warning("ingest_seed_corpus: no .md files (excluding README.md) in %r", seed_dir)
-        return {"files_ingested": 0, "chunks_inserted": 0, "chunks_discarded": 0, "cache_hits": 0}
+        return dict(empty)
 
-    system_user = IngestedBy(user_id="system:seed-ingest")
-    total: dict[str, int] = {"files_ingested": 0, "chunks_inserted": 0, "chunks_discarded": 0, "cache_hits": 0}
+    system_user = IngestedBy(user_id="system:seed-ingest", role="system")
+    total: dict[str, int] = dict(empty)
 
     for md_file in md_files:
         content = md_file.read_text(encoding="utf-8")
@@ -336,9 +364,15 @@ def ingest_seed_corpus(seed_dir: str = "data/seed/far-part-42-43-32") -> dict:
             )
             total["files_ingested"] += 1
             total["chunks_inserted"] += summary["chunks_inserted"]
+            total["chunks_updated"] += summary.get("chunks_updated", 0)
             total["chunks_discarded"] += summary.get("chunks_discarded", 0)
             total["cache_hits"] += summary.get("cache_hits", 0)
-            log.info("seeded %r — %d chunks", md_file.name, summary["chunks_inserted"])
+            log.info(
+                "seeded %r — %d inserted / %d updated chunks",
+                md_file.name,
+                summary["chunks_inserted"],
+                summary.get("chunks_updated", 0),
+            )
         except Exception:
             log.exception("ingest_seed_corpus: failed on %r — continuing", md_file.name)
 

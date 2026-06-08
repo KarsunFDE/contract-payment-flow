@@ -14,6 +14,7 @@ def _make_record(**kwargs) -> RetrievalAuditRecord:
         contract_id="W912HQ-24-C-0001",
         tenant_id="far_corpus_global",
         user_id="co-001",
+        role="contracting_officer",
         query_text="administrative modification adding new CLIN",
         retrieval_strategy="hybrid_rrf_reranked",
         embedding_model="amazon.titan-embed-text-v2:0",

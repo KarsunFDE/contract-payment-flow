@@ -14,7 +14,11 @@ from app.retrieval import failures, fusion
 
 client = TestClient(app)
 
-IDENTITY_HEADERS = {"X-Tenant-Id": "agency_x", "X-User-Id": "co-001"}
+IDENTITY_HEADERS = {
+    "X-Tenant-Id": "agency_x",
+    "X-User-Id": "co-001",
+    "X-User-Role": "contracting_officer",
+}
 
 BODY = {
     "query": "extend period of performance 90 days",
@@ -90,10 +94,20 @@ def test_malformed_tenant_header_rejected_401(mocks):
     mocks["dense"].assert_not_called()
 
 
+def test_missing_role_header_rejected_401(mocks):
+    # Role is required: without X-User-Role the audit record would otherwise
+    # default to 'contracting_officer' and falsify the authority trail.
+    headers = {"X-Tenant-Id": "agency_x", "X-User-Id": "co-001"}
+    resp = client.post("/retrieve/", json=BODY, headers=headers)
+    assert resp.status_code == 401
+    mocks["dense"].assert_not_called()
+    mocks["audit"].assert_not_called()
+
+
 def test_body_supplied_identity_is_ignored(mocks):
-    # A caller smuggling tenant_id/user_id in the body must not influence
+    # A caller smuggling tenant_id/user_id/role in the body must not influence
     # the corpus scope or the audit trail — identity comes from headers only.
-    body = {**BODY, "tenant_id": "agency_evil", "user_id": "forged-co"}
+    body = {**BODY, "tenant_id": "agency_evil", "user_id": "forged-co", "role": "sys_admin"}
     resp = client.post("/retrieve/", json=body, headers=IDENTITY_HEADERS)
     assert resp.status_code == 200
 
@@ -104,6 +118,18 @@ def test_body_supplied_identity_is_ignored(mocks):
     record = mocks["audit"].call_args[0][0]
     assert record.tenant_id == "agency_x"
     assert record.user_id == "co-001"
+    # Real role comes from the X-User-Role header, never the body.
+    assert record.role == "contracting_officer"
+
+
+def test_audit_records_real_non_co_role(mocks):
+    # A non-CO caller's retrieval is recorded with their REAL role, not a
+    # defaulted 'contracting_officer' (review finding — no falsified authority).
+    headers = {**IDENTITY_HEADERS, "X-User-Role": "contract_specialist"}
+    resp = client.post("/retrieve/", json=BODY, headers=headers)
+    assert resp.status_code == 200
+    record = mocks["audit"].call_args[0][0]
+    assert record.role == "contract_specialist"
 
 
 # --- input bounds ---

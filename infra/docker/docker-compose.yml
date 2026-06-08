@@ -12,7 +12,8 @@
 #   http://localhost:8080         — api-gateway
 #   http://localhost:8081         — contract-modification-service (direct)
 #   http://localhost:8082         — invoice-review-service (direct)
-#   http://localhost:8000         — ai-orchestrator
+#   ai-orchestrator               — NOT host-published (security review finding 1);
+#                                   reach it via the gateway at /api/ai/**
 #   http://localhost:4200         — Angular SPA
 #   localhost:5432                — postgres
 #   localhost:27017               — mongodb
@@ -103,8 +104,14 @@ services:
     build:
       context: ../../services/ai-orchestrator
     image: contract-payment-flow/ai-orchestrator:latest   # ⚠ Item 11
-    ports:
-      - "8000:8000"
+    # Security review finding 1: NOT host-published. The corpus-write auth
+    # (app/ingestion/auth.py) trusts gateway-asserted X-User-* headers, which is
+    # only safe while port 8000 is unreachable from the host. `expose` keeps it
+    # on the compose-internal network — reachable by the api-gateway and sibling
+    # services, never by an outside caller who could spoof X-User-Role. Route
+    # external traffic through the gateway: /api/ai/** → ai-orchestrator.
+    expose:
+      - "8000"
     environment:
       AWS_REGION: us-east-1
       BEDROCK_MODEL_ID: anthropic.claude-3-7-sonnet-20250219-v1:0

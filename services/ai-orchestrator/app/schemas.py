@@ -37,7 +37,12 @@ class SourceDocument(BaseModel):
 class IngestedBy(BaseModel):
     """Identity that triggered ingestion (HITL corpus-approval trail)."""
     user_id: str
-    role: str = "contracting_officer"  # CO is the only role in the system
+    role: str = Field(
+        description="Actor's role. REQUIRED — no default: defaulting to "
+                    "'contracting_officer' would stamp false CO provenance on "
+                    "non-CO or automated actors (e.g. the seed bootstrap), in "
+                    "the same field real uploads use (review finding)."
+    )
     service: str = "ai-orchestrator-ingestion"
 
 
@@ -72,7 +77,12 @@ class RetrievalAuditRecord(BaseModel):
     contract_id: str
     tenant_id: str
     user_id: str
-    role: str = "contracting_officer"
+    role: str = Field(
+        description="Caller's real role, from the gateway-asserted X-User-Role "
+                    "header. REQUIRED — no default: recording every retrieval as "
+                    "'contracting_officer' would falsify the append-only "
+                    "authority trail for non-CO callers (review finding)."
+    )
     timestamp: datetime = Field(default_factory=_utc_now)
     query_text: str
     retrieval_strategy: str = Field(description='e.g. "hybrid_rrf_reranked"')
