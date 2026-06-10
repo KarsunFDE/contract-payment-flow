@@ -18,7 +18,7 @@ DFARS Subpart 232.9 — Prompt Payment
 
 (B) A contingency operation (see FAR 2.101(b)); or
 
-(C) The release or threatened release of hazardous substances (as defined in 4 U.S.C. 9606, section 106);
+(C) The release or threatened release of hazardous substances (as defined in 42 U.S.C. 9606, section 106);
 
 (ii) The head of the contracting activity has made a determination, after consultation with the cognizant comptroller, that conditions exist that limit normal business operations; and
 

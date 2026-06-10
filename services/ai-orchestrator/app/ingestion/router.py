@@ -37,7 +37,11 @@ from pymongo.errors import ConfigurationError, OperationFailure
 
 from app import config, db
 from app.ingestion import pipeline
-from app.ingestion.auth import CorpusPrincipal, require_corpus_admin
+from app.ingestion.auth import (
+    _GLOBAL_CORPUS_ROLES,
+    CorpusPrincipal,
+    require_corpus_admin,
+)
 from app.schemas import IngestedBy, SourceDocument
 
 log = logging.getLogger("ai-orchestrator.ingestion.router")
@@ -153,12 +157,26 @@ def _commit_in_transaction(client, commit):
 def _writable_tenant(principal: CorpusPrincipal) -> str:
     """Derive the tenant the principal may write (review finding 2).
 
-    Agency-scoped admins write their own agency corpus; an unscoped admin
-    (e.g. sys_admin without an agency_id) writes the global FAR corpus. Never
-    taken from the request body — this is the §11 isolation control at the
-    write path.
+    Agency-scoped principals write their own agency corpus; only an unscoped
+    global-corpus role (sys_admin, enforced by require_corpus_admin) writes the
+    global FAR corpus. Never taken from the request body — this is the §11
+    isolation control at the write path.
+
+    Defense-in-depth (security review finding — tenant-isolation escalation):
+    require_corpus_admin already 403s a non-global role with a blank agency_id,
+    so a blank agency_id here can only be an authorized global-corpus role. We
+    re-assert that invariant rather than silently falling through to the global
+    corpus if the auth gate is ever weakened.
     """
-    return principal.agency_id or config.GLOBAL_TENANT_ID
+    if principal.agency_id:
+        return principal.agency_id
+    if principal.role not in _GLOBAL_CORPUS_ROLES:
+        raise HTTPException(
+            403,
+            f"Role {principal.role!r} may not write the global FAR corpus without "
+            "an agency_id.",
+        )
+    return config.GLOBAL_TENANT_ID
 
 
 def _write_ingestion_audit(record: dict, *, fail_closed: bool, correlation: str) -> None:
@@ -338,6 +356,14 @@ def ingest_staged_documents(
     }
     per_doc_summaries: list[dict] = []
     current_sid: str | None = None
+    # Half-write guard (security review finding): True once the CURRENT doc's
+    # corpus mutation is (or may be) durable but it is not yet recorded in
+    # per_doc_summaries. On the non-transactional fallback the insert commits
+    # with no rollback, so a failure in the staging flip — or anywhere before the
+    # summary append — leaves chunks in the corpus. We must then fail CLOSED
+    # (503, audit-required) instead of returning a 500 that wrongly claims the
+    # doc was "left out of the corpus".
+    current_doc_committed = False
 
     # Crash-safety (review finding 1): the corpus insert + status flip run in
     # one transaction (_commit_in_transaction). The stale-claim window below is
@@ -381,6 +407,7 @@ def ingest_staged_documents(
     try:
         for sid in req.staged_document_ids:
             current_sid = sid
+            current_doc_committed = False
             # Atomic claim (finding 5): flip → ingesting in one op. Claimable if
             # freshly staged OR a stale "ingesting" leftover from a crashed run.
             # Only the request that wins the claim proceeds; a concurrent caller
@@ -433,10 +460,19 @@ def ingest_staged_documents(
             # full source text (finding 2); metadata/audit fields and expires_at
             # are kept for the TTL reap.
             def _commit(session, sid=sid, prepared=prepared):
+                nonlocal current_doc_committed
                 result = (
                     pipeline.insert_records(prepared["records"], session=session)
                     if prepared["records"] else None
                 )
+                # Non-transactional fallback (session is None): the insert above
+                # is already durable — there is NO rollback. Mark the doc
+                # committed BEFORE the staging flip so a failure in the flip is
+                # treated as a half-write (fail closed), never "left out". In the
+                # transactional path the flip + insert commit atomically, so we
+                # mark committed only after with_transaction returns (below).
+                if session is None and prepared["records"]:
+                    current_doc_committed = True
                 staging.update_one(
                     {"staged_document_id": sid},
                     {
@@ -448,6 +484,10 @@ def ingest_staged_documents(
                 return result
 
             result = _commit_in_transaction(db.get_db().client, _commit)
+            # Corpus mutation is now durable in BOTH paths. Set the flag so a
+            # failure between here and the summary append (e.g. build_summary
+            # raising) is still treated as committed → fail closed.
+            current_doc_committed = bool(prepared["records"])
             summary = pipeline.build_summary(prepared, result)
 
             totals["documents_ingested"] += 1
@@ -491,8 +531,14 @@ def ingest_staged_documents(
             )
         raise
     except Exception as exc:  # pipeline / embedding failure (§10)
-        log.exception("ingest failed on %r", current_sid)
-        if current_sid is not None:
+        log.exception("ingest failed on %r (committed=%s)", current_sid, current_doc_committed)
+        # Half-write detection (security review finding): on the non-transactional
+        # fallback the current doc's chunks may already be durable even though it
+        # never reached per_doc_summaries. Do NOT mark such a doc "failed" — that
+        # would label a doc whose chunks are in the corpus as excluded, and would
+        # block the idempotent stale-claim re-ingest that finalizes it. Only mark
+        # failed when nothing was committed for this doc.
+        if current_sid is not None and not current_doc_committed:
             staging.update_one(
                 {"staged_document_id": current_sid},
                 {"$set": {
@@ -503,8 +549,9 @@ def ingest_staged_documents(
             )
         fail_record = pipeline.make_ingestion_run_record(
             summary={
-                "status": "failed",
+                "status": "failed_after_partial_commit" if current_doc_committed else "failed",
                 "failed_document_id": current_sid,
+                "current_document_committed": current_doc_committed,
                 "error": str(exc)[:500],
                 "per_document": per_doc_summaries,
                 **totals,
@@ -514,20 +561,35 @@ def ingest_staged_documents(
         fail_record["event"] = "corpus_ingestion_failed"
         fail_record["ingested_by"] = ingested_by.model_dump()
         fail_record["tenant_id"] = tenant_id
-        # Fail closed ONLY when earlier docs were already committed (review
-        # finding): committed chunks with no durable audit record are the same
-        # fail-open the success path guards against, so if per_doc_summaries is
-        # non-empty an audit-write failure must raise 503 (do-not-retry) rather
-        # than be swallowed. When nothing committed yet (failed on the first
-        # doc), keep the original semantics: don't let an audit-write failure
-        # mask the real ingestion exception — log loudly, return, surface the
-        # crafted 500 below (finding 6).
-        committed_before_failure = bool(per_doc_summaries)
+        # Fail closed when ANYTHING is committed (review finding): earlier docs in
+        # the batch (per_doc_summaries) OR a half-written current doc
+        # (current_doc_committed). Committed chunks with no durable audit record
+        # are the fail-open the success path guards against, so an audit-write
+        # failure must raise 503 (do-not-retry) rather than be swallowed. Only
+        # when NOTHING committed (clean failure on the first doc) do we keep the
+        # original semantics: don't let an audit-write failure mask the real
+        # ingestion exception — log loudly, return, surface the 500 below.
+        committed_before_failure = bool(per_doc_summaries) or current_doc_committed
         _write_ingestion_audit(
             fail_record,
             fail_closed=committed_before_failure,
-            correlation=f"tenant_id={tenant_id} failed_document_id={current_sid!r}",
+            correlation=f"tenant_id={tenant_id} failed_document_id={current_sid!r} "
+                        f"committed={current_doc_committed}",
         )
+        if current_doc_committed:
+            # Half-write: the current doc's chunks ARE in the corpus but ingestion
+            # raised before finalizing it. Reporting "left out of the corpus"
+            # would be false. Fail closed with an accurate, do-not-discard message;
+            # the deterministic chunk_ref upsert makes the stale-claim re-ingest an
+            # idempotent no-op that finalizes the staging flip.
+            raise HTTPException(
+                503,
+                f"Ingestion failed on {current_sid!r} AFTER its chunks were committed to "
+                "the corpus (non-transactional deployment). The document is HALF-WRITTEN: "
+                "its chunks are in the corpus but staging was not finalized. Do NOT treat "
+                "it as excluded. Re-ingest is an idempotent no-op (deterministic chunk_ref "
+                "upsert) and will finalize staging. See the ingestion_audit collection.",
+            )
         raise HTTPException(
             500,
             f"Ingestion failed on {current_sid!r}; that document was marked failed and "

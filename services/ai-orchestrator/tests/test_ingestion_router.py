@@ -30,7 +30,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pymongo.errors import OperationFailure
 
-from app import db
+from fastapi import HTTPException
+
+from app import config, db
 from app.ingestion import router as router_module
 from app.ingestion.auth import CorpusPrincipal, require_corpus_admin
 from app.main import app
@@ -67,7 +69,8 @@ def fake_db() -> _FakeDB:
 def client(fake_db):
     """TestClient with auth overridden to a fixed CO principal and db patched."""
     app.dependency_overrides[require_corpus_admin] = lambda: CorpusPrincipal(
-        user_id="co-001", role="contracting_officer", display_name="Test CO"
+        user_id="co-001", role="contracting_officer", display_name="Test CO",
+        agency_id="agency_test",
     )
     with patch("app.db.get_db", return_value=fake_db):
         yield TestClient(app)
@@ -515,6 +518,52 @@ def test_success_path_audit_write_failure_fails_closed_503(client, fake_db, capl
     )
 
 
+def test_nontxn_halfwrite_fails_closed_503(client, fake_db, caplog):
+    """Security review finding: on the non-transactional fallback, if the corpus
+    insert commits but the staging flip then raises, the current doc is
+    HALF-WRITTEN (chunks in the corpus). The handler must fail closed with a 503
+    that does NOT claim the doc was 'left out of the corpus', must NOT mark the
+    doc 'failed' (that would block the idempotent re-ingest), and must write the
+    audit record."""
+    claimed = {
+        "staged_document_id": "sid-hw", "title": "FAR 43", "far_part": "43",
+        "subpart": "", "clause_number": "", "source_url": "",
+        "text": "body", "status": "ingesting",
+    }
+    staging = _wire_ingest_success(fake_db, claimed)
+    # Force the non-transactional fallback path (standalone-mongod behaviour).
+    fake_db.session.with_transaction.side_effect = OperationFailure(
+        "Transaction numbers are only allowed on a replica set member or mongos",
+        code=20,
+    )
+    # The insert commits (durable, no rollback), then the staging flip raises.
+    staging.update_one.side_effect = OperationFailure("staging flip failed")
+
+    p_prepare, p_insert = _patch_pipeline(chunks_inserted=2)
+    with p_prepare, p_insert, \
+         patch.object(router_module.pipeline, "make_ingestion_run_record", return_value={}), \
+         caplog.at_level("ERROR"):
+        resp = client.post(
+            "/corpus/ingest",
+            json={"staged_document_ids": ["sid-hw"], "document_version": "2026-06-01"},
+        )
+
+    # 503 (audit-required), NOT a 500 "left out of the corpus".
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"].lower()
+    assert "half-written" in detail
+    assert "left out" not in detail
+    # The doc must NOT have been marked failed — the only update_one was the flip
+    # that raised; no second call labels it failed.
+    assert staging.update_one.call_count == 1
+    assert all(
+        call_obj.args[1].get("$set", {}).get("status") != "failed"
+        for call_obj in staging.update_one.call_args_list
+    )
+    # The half-write was audited (fail-closed audit write ran).
+    fake_db["ingestion_audit"].insert_one.assert_called_once()
+
+
 def test_success_path_audit_write_success_returns_200(client, fake_db):
     """Happy path: when the audit insert succeeds the request returns 200 with the
     chunk totals (the helper does not interfere with the success response)."""
@@ -677,3 +726,112 @@ def test_stats_requires_identity():
         resp = TestClient(app).get("/corpus/stats")
     assert resp.status_code == 401
     corpus.aggregate.assert_not_called()
+
+
+# --- tenant-isolation escalation (security review finding) ---
+
+
+def test_require_corpus_admin_rejects_co_without_agency():
+    """A contracting_officer with a blank agency_id must fail closed (403), NOT
+    fall through to the global corpus every tenant retrieves (ADR-0005 §11)."""
+    with pytest.raises(HTTPException) as exc:
+        require_corpus_admin(
+            x_user_id="co-001", x_user_role="contracting_officer", x_agency_id=""
+        )
+    assert exc.value.status_code == 403
+    assert "agency_id" in exc.value.detail
+
+
+def test_require_corpus_admin_co_with_agency_ok():
+    principal = require_corpus_admin(
+        x_user_id="co-001", x_user_role="contracting_officer",
+        x_user_name="", x_agency_id="agency_x",
+    )
+    assert principal.agency_id == "agency_x"
+
+
+def test_require_corpus_admin_sysadmin_may_be_unscoped():
+    """Only sys_admin may present a blank agency_id (unscoped global write)."""
+    principal = require_corpus_admin(
+        x_user_id="admin", x_user_role="sys_admin",
+        x_user_name="", x_agency_id="",
+    )
+    assert principal.agency_id == ""
+
+
+def test_writable_tenant_co_scoped_to_agency():
+    principal = CorpusPrincipal(
+        user_id="co-1", role="contracting_officer", agency_id="agency_x"
+    )
+    assert router_module._writable_tenant(principal) == "agency_x"
+
+
+def test_writable_tenant_sysadmin_global():
+    principal = CorpusPrincipal(user_id="admin", role="sys_admin", agency_id="")
+    assert router_module._writable_tenant(principal) == config.GLOBAL_TENANT_ID
+
+
+def test_writable_tenant_rejects_unscoped_non_global_role():
+    """Defense-in-depth: even if the auth gate is bypassed, a non-global role
+    with a blank agency_id must never resolve to the global corpus."""
+    principal = CorpusPrincipal(
+        user_id="co-1", role="contracting_officer", agency_id=""
+    )
+    with pytest.raises(HTTPException) as exc:
+        router_module._writable_tenant(principal)
+    assert exc.value.status_code == 403
+
+
+# --- write-path role authorization 403 branch (review finding 8: never exercised) ---
+
+
+def test_require_corpus_admin_rejects_unauthorized_role():
+    """Unit: a role outside _CORPUS_WRITE_ROLES must 403 — guards against a
+    regression that widens the allowlist or drops the role check (finding 8)."""
+    with pytest.raises(HTTPException) as exc:
+        require_corpus_admin(
+            x_user_id="u1", x_user_role="vendor",
+            x_user_name="", x_agency_id="agency_x",
+        )
+    assert exc.value.status_code == 403
+    assert "not authorized to write" in exc.value.detail
+
+
+def _no_override_client() -> TestClient:
+    """TestClient with the REAL require_corpus_admin (no dependency override), so
+    the actual gateway-header auth logic is exercised end-to-end."""
+    app.dependency_overrides.pop(require_corpus_admin, None)
+    return TestClient(app)
+
+
+def test_upload_rejects_unauthorized_role_403():
+    """/corpus/upload with a non-CO/non-sys_admin role hits the real auth gate
+    and must 403 (finding 8 — endpoint-level coverage with no override)."""
+    resp = _no_override_client().post(
+        "/corpus/upload",
+        files=_upload_files(),
+        data=_good_form(),
+        headers={"X-User-Id": "u1", "X-User-Role": "vendor", "X-Agency-Id": "agency_x"},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "not authorized" in resp.json()["detail"]
+
+
+def test_ingest_rejects_unauthorized_role_403():
+    """/corpus/ingest with a non-CO/non-sys_admin role must 403 at the auth gate
+    before any staging/pipeline work runs (finding 8)."""
+    resp = _no_override_client().post(
+        "/corpus/ingest",
+        json={"staged_document_ids": ["sid-x"], "document_version": "2026-06-01"},
+        headers={"X-User-Id": "u1", "X-User-Role": "vendor", "X-Agency-Id": "agency_x"},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "not authorized" in resp.json()["detail"]
+
+
+def test_upload_unauthenticated_401():
+    """No identity headers → 401 at the real auth gate (regression guard)."""
+    resp = _no_override_client().post(
+        "/corpus/upload", files=_upload_files(), data=_good_form()
+    )
+    assert resp.status_code == 401, resp.text

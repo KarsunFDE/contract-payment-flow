@@ -17,6 +17,12 @@ Override identity / block / contract via env if needed:
     QUERY_TENANT_ID, QUERY_USER_ID, QUERY_USER_ROLE, QUERY_SF30_BLOCK,
     QUERY_CONTRACT_ID.
 
+X-User-Role defaults to the non-authoritative "system_smoke_test" (NOT
+contracting_officer): /retrieve records the role verbatim into the append-only
+audit trail, so a CO default would falsify CO authority on every smoke run
+(FAR 1.602-1). Set QUERY_USER_ROLE only with a real gateway-asserted role, and
+never use this script as a stand-in for an authenticated CO request.
+
 Exits non-zero if the request fails or returns zero chunks, so it can gate a
 verification step.
 """
@@ -30,6 +36,16 @@ import urllib.request
 
 _DEFAULT_QUERY = "bilateral modification price adjustment"
 _URL = "http://localhost:8000/retrieve/"
+
+# Non-authoritative smoke-test identity (security review finding). This script
+# bypasses the gateway and POSTs straight to the internal /retrieve, which
+# records X-User-Role VERBATIM into the append-only RetrievalAuditRecord. The
+# old "contracting_officer" default falsely attributed every local smoke run to
+# a CO — exactly the authority-trail falsification this PR removed (FAR 1.602-1).
+# Default to a role that is clearly NOT a CO and that audit/reporting excludes;
+# real callers must go through the gateway, never this script.
+_SMOKE_TEST_ROLE = "system_smoke_test"
+_SMOKE_TEST_USER = "system-smoke-test"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,8 +63,8 @@ def main(argv: list[str] | None = None) -> int:
         headers={
             "Content-Type": "application/json",
             "X-Tenant-Id": os.environ.get("QUERY_TENANT_ID", "far_corpus_global"),
-            "X-User-Id": os.environ.get("QUERY_USER_ID", "test-user-001"),
-            "X-User-Role": os.environ.get("QUERY_USER_ROLE", "contracting_officer"),
+            "X-User-Id": os.environ.get("QUERY_USER_ID", _SMOKE_TEST_USER),
+            "X-User-Role": os.environ.get("QUERY_USER_ROLE", _SMOKE_TEST_ROLE),
         },
     )
 

@@ -72,6 +72,53 @@ def test_sparse_search_returns_empty_on_no_results():
     assert results == []
 
 
+# --- dense_search chunk_id integrity (security review finding) ---
+
+def _patch_dense(results):
+    """Patch the vector store + embeddings so dense_search runs offline and
+    similarity_search_with_score returns `results`."""
+    vector_store = MagicMock()
+    vector_store.similarity_search_with_score.return_value = results
+    return patch.multiple(
+        "app.retrieval.retriever",
+        db=MagicMock(),
+        _get_embeddings=MagicMock(return_value=object()),
+        MongoDBAtlasVectorSearch=MagicMock(return_value=vector_store),
+    )
+
+
+def test_dense_search_passes_through_real_chunk_id():
+    doc = Document(page_content="FAR 43.103", metadata={"chunk_id": "uuid-1", "_id": "OID"})
+    with _patch_dense([(doc, 0.9)]):
+        from app.retrieval.retriever import dense_search
+        results = dense_search("mods", ["far_corpus_global"])
+    assert results[0][0].metadata["chunk_id"] == "uuid-1"
+    # Mongo _id stripped so nothing downstream mistakes it for chunk identity.
+    assert "_id" not in results[0][0].metadata
+
+
+def test_dense_search_fails_closed_when_chunk_id_missing():
+    """A dense result without the UUID chunk_id must NOT fall back to the Mongo
+    _id — that ObjectId can't resolve back to the corpus chunk and would corrupt
+    the DCAA-traceable audit log. Fail closed instead."""
+    doc = Document(page_content="FAR 43.103", metadata={"_id": "OID-only"})
+    with _patch_dense([(doc, 0.9)]):
+        from app.retrieval.retriever import dense_search
+        with pytest.raises(ValueError) as exc:
+            dense_search("mods", ["far_corpus_global"])
+    assert "chunk_id" in str(exc.value)
+    # The unresolvable _id must NOT have been substituted in as chunk_id.
+    assert doc.metadata.get("chunk_id") in (None, "")
+
+
+def test_dense_search_fails_closed_on_blank_chunk_id():
+    doc = Document(page_content="x", metadata={"chunk_id": "  ", "_id": "OID"})
+    with _patch_dense([(doc, 0.5)]):
+        from app.retrieval.retriever import dense_search
+        with pytest.raises(ValueError):
+            dense_search("q", ["far_corpus_global"])
+
+
 # --- _tenant_ids ---
 
 def test_tenant_ids_includes_global():

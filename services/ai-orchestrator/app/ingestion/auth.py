@@ -27,14 +27,22 @@ from pydantic import BaseModel
 # sys_admin performs corpus operations on the CO's behalf.
 _CORPUS_WRITE_ROLES = {"contracting_officer", "sys_admin"}
 
+# Only this role may write the unscoped global FAR corpus (the corpus every
+# tenant retrieves). Every other write role MUST carry a non-blank agency_id and
+# is confined to that agency's tenant — see require_corpus_admin (security review
+# finding: tenant-isolation escalation, ADR-0005 §11; FAR 1.602-1 / 43.102).
+_GLOBAL_CORPUS_ROLES = {"sys_admin"}
+
 
 class CorpusPrincipal(BaseModel):
     """The authenticated actor authorized to write the corpus."""
     user_id: str
     role: str
     display_name: str = ""
-    # Tenant scope (ADR-0005 §11). Blank → an unscoped admin who may write the
-    # global FAR corpus; set → that agency's tenant-scoped corpus only.
+    # Tenant scope (ADR-0005 §11). For a global-corpus role (sys_admin) a blank
+    # agency_id means the unscoped global FAR corpus; for every other write role
+    # require_corpus_admin guarantees this is non-blank, so the write path can
+    # never silently fall through to the global corpus.
     agency_id: str = ""
 
 
@@ -51,6 +59,7 @@ def require_corpus_admin(
     """
     user_id = (x_user_id or "").strip()
     role = (x_user_role or "").strip().lower()
+    agency_id = (x_agency_id or "").strip()
 
     if not user_id or not role:
         raise HTTPException(
@@ -64,10 +73,23 @@ def require_corpus_admin(
             f"Role {role!r} is not authorized to write the FAR corpus "
             f"(requires one of {sorted(_CORPUS_WRITE_ROLES)}).",
         )
+    # Fail closed on tenant scope (security review finding — tenant-isolation
+    # escalation, ADR-0005 §11). Only a global-corpus role may write unscoped;
+    # every other write role MUST present a non-blank agency_id. Without this a
+    # contracting_officer whose token is missing/blank agency_id would fall
+    # through _writable_tenant to far_corpus_global — the corpus every tenant
+    # retrieves for SF-30 drafting (FAR 1.602-1 / 43.102).
+    if not agency_id and role not in _GLOBAL_CORPUS_ROLES:
+        raise HTTPException(
+            403,
+            f"Role {role!r} requires a non-blank agency_id (X-Agency-Id) to write "
+            "the corpus; only a global-corpus role may write the unscoped global "
+            "FAR corpus.",
+        )
 
     return CorpusPrincipal(
         user_id=user_id,
         role=role,
         display_name=(x_user_name or "").strip(),
-        agency_id=(x_agency_id or "").strip(),
+        agency_id=agency_id,
     )

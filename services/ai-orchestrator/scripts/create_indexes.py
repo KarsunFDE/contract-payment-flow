@@ -24,9 +24,13 @@ Run from the service root with the compose stack up:
 
     python -m scripts.create_indexes
 
-Idempotent: re-running against existing indexes is a no-op (checks by
-name first). Exits non-zero if either index fails to reach ACTIVE/READY —
-the migration plan requires both verified before go-live (Step 5.3).
+Idempotent: re-running against a matching far_vector_idx is a no-op. The
+vector index is verified by SPEC, not just name — if its numDimensions
+(EMBEDDING_DIMENSIONS), filter fields, or type drift from the configured
+definition, the stale index is dropped and recreated (review finding 4) so a
+512→1024 dimension change can't leave $vectorSearch running on a stale index.
+Exits non-zero if either index fails to reach ACTIVE/READY — the migration
+plan requires both verified before go-live (Step 5.3).
 """
 from __future__ import annotations
 
@@ -53,44 +57,95 @@ READY_STATUSES = frozenset({"READY", "ACTIVE"})
 FAILED_STATUSES = frozenset({"FAILED", "DOES_NOT_EXIST"})
 
 
+def _vector_index_fields() -> list[dict]:
+    """The far_vector_idx field spec (ADR-0005 §3). Single source of truth for
+    BOTH the index builder and the drift check (vector_index_drift) so the
+    "does the live index still match?" comparison can never diverge from what we
+    would create."""
+    return [
+        # Primary vector field — cosine similarity on Titan V2 embeddings (§3).
+        # numDimensions is config-driven: a 512→1024 EMBEDDING_DIMENSIONS change
+        # MUST force the existing Atlas index to be dropped + recreated, else
+        # $vectorSearch runs against a stale-dimension index (review finding).
+        {
+            "type": "vector",
+            "path": "embedding",
+            "numDimensions": config.EMBEDDING_DIMENSIONS,
+            "similarity": "cosine",
+        },
+        # Filter fields allow $vectorSearch to pre-filter before ANN scoring.
+        # tenant_id MUST be here — Person B's §11 tenant pre-filter runs inside
+        # $vectorSearch, not at the application layer (security control, §6).
+        {"type": "filter", "path": "tenant_id"},
+        # far_part / clause_number live NESTED under source_document on the
+        # stored ChunkDocument (app/schemas.py SourceDocument; assembled in
+        # app/ingestion/pipeline.py). A top-level path here would pre-filter
+        # against a field that does not exist, matching zero docs — so the
+        # filter paths must use the dotted source_document.* shape. tenant_id
+        # is genuinely top-level (ChunkDocument.tenant_id) — left as-is.
+        {"type": "filter", "path": "source_document.far_part"},
+        {"type": "filter", "path": "source_document.clause_number"},
+        # NOTE: chunk_text intentionally NOT a vector filter field — deliberate
+        # deviation from ADR-0005 §3 (which lists it among the vector index's
+        # "additional indexed fields"). No ADR retrieval pattern ever filters
+        # $vectorSearch on body text, and adversarial review finding 12 already
+        # flags this for the ADR's next revision. chunk_text remains fully
+        # indexed for BM25/sparse retrieval in far_text_idx (build_text_index_model).
+        # A dev far_vector_idx created with the OLD filter set still carries
+        # chunk_text; vector_index_drift now detects that filter-set mismatch and
+        # drops + recreates the index to shed the field.
+    ]
+
+
 def build_vector_index_model() -> SearchIndexModel:
     """Define far_vector_idx per ADR-0005 §3 vector index specification."""
     return SearchIndexModel(
-        definition={
-            "fields": [
-                # Primary vector field — cosine similarity on 512-dim Titan V2 embeddings (§3).
-                {
-                    "type": "vector",
-                    "path": "embedding",
-                    "numDimensions": config.EMBEDDING_DIMENSIONS,
-                    "similarity": "cosine",
-                },
-                # Filter fields allow $vectorSearch to pre-filter before ANN scoring.
-                # tenant_id MUST be here — Person B's §11 tenant pre-filter runs inside
-                # $vectorSearch, not at the application layer (security control, §6).
-                {"type": "filter", "path": "tenant_id"},
-                # far_part / clause_number live NESTED under source_document on the
-                # stored ChunkDocument (app/schemas.py SourceDocument; assembled in
-                # app/ingestion/pipeline.py). A top-level path here would pre-filter
-                # against a field that does not exist, matching zero docs — so the
-                # filter paths must use the dotted source_document.* shape. tenant_id
-                # is genuinely top-level (ChunkDocument.tenant_id) — left as-is.
-                {"type": "filter", "path": "source_document.far_part"},
-                {"type": "filter", "path": "source_document.clause_number"},
-                # NOTE: chunk_text intentionally NOT a vector filter field — deliberate
-                # deviation from ADR-0005 §3 (which lists it among the vector index's
-                # "additional indexed fields"). No ADR retrieval pattern ever filters
-                # $vectorSearch on body text, and adversarial review finding 12 already
-                # flags this for the ADR's next revision. chunk_text remains fully
-                # indexed for BM25/sparse retrieval in far_text_idx (build_text_index_model).
-                # CAUTION: a dev far_vector_idx created with the OLD filter set still
-                # carries chunk_text — the idempotency check skips by name, so that index
-                # must be dropped + recreated to shed the field.
-            ]
-        },
+        definition={"fields": _vector_index_fields()},
         name=config.FAR_VECTOR_INDEX,
         type="vectorSearch",
     )
+
+
+def vector_index_drift(existing: dict) -> str | None:
+    """Compare a live far_vector_idx (one entry from list_search_indexes) against
+    the configured spec. Return a human-readable reason if the index must be
+    dropped + recreated, or None if it still matches (review finding 4).
+
+    Skipping solely by name is unsafe: an EMBEDDING_DIMENSIONS change (512→1024),
+    a filter-field change, or a type change all leave a stale index that
+    silently degrades or fails $vectorSearch. This checks the dimensions, the
+    vector path/similarity, the filter-field set, and the index type.
+    """
+    expected_fields = _vector_index_fields()
+    expected_vector = next(f for f in expected_fields if f["type"] == "vector")
+    expected_filters = {f["path"] for f in expected_fields if f["type"] == "filter"}
+
+    # Atlas reports the index type at the top level of the list entry. Treat a
+    # missing type as the expected vectorSearch (older backends omit it).
+    got_type = existing.get("type", "vectorSearch")
+    if got_type != "vectorSearch":
+        return f"index type {got_type!r} != 'vectorSearch'"
+
+    # The current definition lives under latestDefinition (Atlas) or definition.
+    definition = existing.get("latestDefinition") or existing.get("definition") or {}
+    got_fields = definition.get("fields", [])
+
+    got_vectors = [f for f in got_fields if f.get("type") == "vector"]
+    if len(got_vectors) != 1:
+        return f"expected exactly 1 vector field, found {len(got_vectors)}"
+    got_vector = got_vectors[0]
+    for key in ("path", "numDimensions", "similarity"):
+        if got_vector.get(key) != expected_vector[key]:
+            return (
+                f"vector field {key}={got_vector.get(key)!r} != "
+                f"{expected_vector[key]!r}"
+            )
+
+    got_filters = {f.get("path") for f in got_fields if f.get("type") == "filter"}
+    if got_filters != expected_filters:
+        return f"filter fields {sorted(got_filters)} != {sorted(expected_filters)}"
+
+    return None
 
 
 def build_text_index_model() -> SearchIndexModel:
@@ -114,9 +169,32 @@ def build_text_index_model() -> SearchIndexModel:
     )
 
 
-def existing_search_index_names(collection) -> set[str]:
-    """Return names of search indexes already on the collection (idempotency check)."""
-    return {idx["name"] for idx in collection.list_search_indexes()}
+def existing_search_indexes(collection) -> dict[str, dict]:
+    """Return {name: index_info} for search indexes already on the collection.
+
+    Returns the full info dict (not just names) so the idempotency check can
+    inspect the live definition for drift (review finding 4), not skip blindly
+    by name.
+    """
+    return {idx["name"]: idx for idx in collection.list_search_indexes()}
+
+
+def wait_until_index_absent(collection, name: str) -> bool:
+    """Poll until `name` no longer appears in list_search_indexes.
+
+    A search index drops asynchronously on Atlas; recreating the same name while
+    the old one is still DELETING fails. Used after drop_search_index before a
+    drift-driven recreate (review finding 4). Returns False on timeout.
+    """
+    deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        names = {idx.get("name") for idx in collection.list_search_indexes()}
+        if name not in names:
+            return True
+        log.info("  waiting for %r to finish dropping...", name)
+        time.sleep(POLL_INTERVAL_SECONDS)
+    log.error("timed out after %ds waiting for %r to drop", POLL_TIMEOUT_SECONDS, name)
+    return False
 
 
 def wait_until_indexes_ready(collection, index_names: list[str]) -> bool:
@@ -199,7 +277,7 @@ def main() -> int:
     log.info("ensured TTL index %r on %s.expires_at", "staging_ttl", staging.name)
 
     # Check what already exists so re-runs are safe to call repeatedly.
-    existing = existing_search_index_names(collection)
+    existing = existing_search_indexes(collection)
     log.info("existing search indexes: %s", sorted(existing))
 
     # Pair each index name with its builder so we skip only the ones already present.
@@ -210,11 +288,33 @@ def main() -> int:
 
     to_create = []
     for name, builder in candidates:
-        if name in existing:
-            log.info("index %r already exists — skipping", name)
-        else:
+        if name not in existing:
             log.info("index %r not found — queuing for creation", name)
             to_create.append(builder())
+            continue
+
+        # Drift check (review finding 4): the vector index is keyed on
+        # EMBEDDING_DIMENSIONS / filter fields / type, NOT just its name. A
+        # changed spec (e.g. 512→1024 dims) must drop + recreate, else inserts
+        # and $vectorSearch run against a stale-dimension index.
+        drift = (
+            vector_index_drift(existing[name])
+            if name == config.FAR_VECTOR_INDEX
+            else None
+        )
+        if not drift:
+            log.info("index %r already exists and matches spec — skipping", name)
+            continue
+
+        log.warning(
+            "index %r differs from configured spec (%s) — dropping and recreating",
+            name,
+            drift,
+        )
+        collection.drop_search_index(name)
+        if not wait_until_index_absent(collection, name):
+            return 1  # could not drop the stale index — block the migration
+        to_create.append(builder())
 
     if to_create:
         # create_search_indexes accepts a list; Atlas Local starts building asynchronously.

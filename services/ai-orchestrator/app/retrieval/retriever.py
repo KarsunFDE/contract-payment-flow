@@ -86,20 +86,31 @@ def dense_search(
         pre_filter={"tenant_id": {"$in": tenant_ids}},
     )
     # Normalize chunk_id at the retriever boundary (mirrors sparse_search):
-    # MongoDBAtlasVectorSearch is not guaranteed to surface chunk_id in
-    # metadata, and downstream fusion/audit key on it. Without this, fusion's
-    # page_content[:64] fallback can collide on FAR boilerplate prefixes and
-    # the audit trail logs empty-string chunk IDs for dense-origin chunks.
+    # MongoDBAtlasVectorSearch (v0.11) returns the whole stored document minus
+    # the embedding as metadata, so the UUID chunk_id written by ChunkDocument
+    # is normally present. Downstream fusion/audit key on it.
+    #
+    # Fail closed (security review finding — DCAA traceability): NEVER substitute
+    # the Mongo _id ObjectId for a missing chunk_id. That ObjectId is not the
+    # stable UUID chunk_id (and is not what sparse_search records), so it cannot
+    # be resolved back to the corpus chunk — recording it would silently corrupt
+    # the authority-backed retrieval log (RetrievalAuditRecord.chunks_retrieved,
+    # ADR-0005 §12; FAR 1.602-1 / 43.102). chunk_id is a required field on every
+    # ChunkDocument, so a result missing it means corrupt/legacy corpus data:
+    # raise rather than audit an unresolvable id.
     for doc, _ in results:
-        if not doc.metadata.get("chunk_id"):
+        if not str(doc.metadata.get("chunk_id") or "").strip():
             mongo_id = doc.metadata.get("_id")
-            if mongo_id is not None:
-                doc.metadata["chunk_id"] = str(mongo_id)
-            else:
-                log.warning(
-                    "dense result missing chunk_id and _id — fusion/audit will "
-                    "fall back to content-prefix identity"
-                )
+            raise ValueError(
+                "dense retrieval result is missing the UUID chunk_id required for "
+                "the audit trail (corpus _id="
+                f"{mongo_id!r}). Refusing to substitute the Mongo _id — it cannot "
+                "be resolved back to the corpus chunk and would corrupt the "
+                "DCAA-traceable retrieval log. Re-ingest the affected document."
+            )
+        # Drop the Mongo _id from metadata so nothing downstream mistakes it for
+        # the stable chunk identity.
+        doc.metadata.pop("_id", None)
     return results
 
 

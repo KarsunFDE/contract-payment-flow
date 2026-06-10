@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR 0006 (Alternative) — Contract-Lookup SF-30 Modification Workflow</title>
+<style>
+  :root {
+    --fg: #1c2530; --muted: #5b6878; --bg: #ffffff; --soft: #f4f6f9;
+    --border: #d9e0e8; --accent: #1f6feb; --rule: #e3e8ee;
+    --ai: #1f6feb; --ai-bg: #e7f0ff;
+    --tool: #1a7f4b; --tool-bg: #e4f6ec;
+    --human: #b4690e; --human-bg: #fdf0dd;
+    --mix: #7c3aed; --mix-bg: #f1e9fe;
+    --warn: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--soft); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .page {
+    max-width: 940px; margin: 32px auto; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 48px 56px; box-shadow: 0 1px 4px rgba(20,30,45,.06);
+  }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 4px; }
+  h2 {
+    font-size: 1.35rem; margin: 2.4rem 0 .8rem; padding-bottom: .3rem;
+    border-bottom: 2px solid var(--rule);
+  }
+  h3 { font-size: 1.08rem; margin: 1.7rem 0 .5rem; color: #2b3645; }
+  p, li { color: #283340; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: "SF Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace;
+    font-size: .87em; background: #eef1f5; color: #15324f;
+    padding: .08em .38em; border-radius: 4px;
+  }
+  pre {
+    background: #0f1620; color: #e6edf3; border-radius: 8px;
+    padding: 18px 20px; overflow-x: auto; line-height: 1.45;
+    font-family: "SF Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace;
+    font-size: 12.5px; border: 1px solid #1d2733;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  blockquote {
+    margin: 1rem 0; padding: .6rem 1rem; background: #fff8e6;
+    border-left: 4px solid var(--human); color: #5a4410; border-radius: 0 6px 6px 0;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid var(--border); padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 2rem 0; }
+  ol, ul { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+
+  .meta { width: 100%; margin: 14px 0 8px; font-size: .9rem; }
+  .meta td { border: none; padding: 2px 0; }
+  .meta td:first-child { color: var(--muted); width: 150px; font-weight: 600; }
+  .status {
+    display: inline-block; background: #fff4d6; color: #8a6300;
+    border: 1px solid #ecd28a; border-radius: 20px;
+    padding: 2px 12px; font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+  }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 4px; }
+  .b { display: inline; border-radius: 4px; padding: 0 4px; font-weight: 700; font-size: .92em; }
+  .legend .b { font-size: .8rem; padding: 3px 9px; }
+  .b.ai      { background: var(--ai-bg);    color: var(--ai); }
+  .b.tool    { background: var(--tool-bg);  color: var(--tool); }
+  .b.human   { background: var(--human-bg); color: var(--human); }
+  .b.ai-tool, .b.tool-ai { background: var(--mix-bg); color: var(--mix); }
+  pre.diagram .b { padding: 0 2px; }
+
+  .delta { background:#e7f0ff; border-left:4px solid var(--accent); border-radius:0 6px 6px 0; padding:.6rem 1rem; margin:1rem 0; }
+  .note { font-size: .82rem; color: var(--muted); margin-top: 28px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>ADR 0006 (Alternative) — Contract-Lookup SF-30 Modification Workflow</h1>
+  <p style="margin:.2rem 0 0;color:var(--muted);font-size:.9rem">An alternative to ADR-0006 — same workflow, contract-number lookup instead of SF-30 upload.</p>
+  <table class="meta">
+    <tr><td>Date</td><td>2026-06-10</td></tr>
+    <tr><td>Status</td><td><span class="status">PROPOSED</span></td></tr>
+    <tr><td>Decision-makers</td><td>Pair 2</td></tr>
+    <tr><td>Relationship</td><td><strong>Alternative to ADR-0006</strong> — same workflow, with the <strong>upload + extraction front end replaced by a contract-number lookup</strong>. Supplements ADR-0004 (AI SF-30 Helper), ADR-0005 (RAG Retrieval Architecture), ADR-0003 (Bedrock LLM Anchor). The ADR-0006 downstream (classify → grounded draft → CO gate → submit → audit) is retained unchanged.</td></tr>
+  </table>
+
+  <div class="delta">
+    <strong>What changed from ADR-0006.</strong> ADR-0006 had the CO <em>upload a partially-completed SF-30</em>, then parse it with PyMuPDF. That was circular (the SF-30 is this workflow's <em>output</em>) and contradicted ADR-0005 §4, which already sources Blocks 1–12 from <em>structured DB queries against the contract record</em>. This alternative corrects this: the CO <strong>enters a contract number</strong>, the system <strong>looks the contract up in the government contract-of-record</strong> and auto-fills the static SF-30 blocks. No upload, no PyMuPDF, no OCR, no AGPL dependency.
+  </div>
+
+  <hr>
+
+  <h2>Context</h2>
+  <p>ADR-0004 established the SF-30 helper pipeline and grounding rules; ADR-0005 built the retrieval layer and the per-block routing (§4); ADR-0006 specified the agentic LangGraph workflow. ADR-0006 assumed the CO uploads an SF-30 to be parsed — but the SF-30 is the document this workflow <em>produces</em>, and ADR-0005 §4 already says the static blocks (1–12) come from the contract record via structured lookup, not from a parsed document.</p>
+  <p>This ADR defines the corrected front end: the CO <strong>types a contract number and states the change</strong> (what funding / period-of-performance / scope change is wanted). The system <strong>resolves the contract number against the government contract-of-record</strong>, auto-fills the static SF-30 blocks from the authoritative record, classifies the modification type, drafts the rationale through the ADR-0005 grounded pipeline, and routes the assembled form through the hard CO approval gate before submission.</p>
+  <p>Scope remains <strong>strictly post-award contract modifications</strong> (FAR Part 43 / DFARS 243). SF-30 "Amendment of Solicitation" (pre-award) stays out of scope.</p>
+  <p>Current state (per <code>docs/retrieval-ingestion-integration-plan.md</code>, verified on <code>dev</code>): corpus live on Atlas Local, <code>retrieve_node</code> implemented with fail-closed audit, confidence/faithfulness gates specified. The in-system contract-of-record (<code>Award</code> / <code>Contract</code> / <code>Vendor</code> records) is seeded in fixtures. No contract-lookup endpoint, no agent harness, no form-fill tool layer yet.</p>
+
+  <hr>
+
+  <h2>Decision</h2>
+  <p>Deploy a LangGraph <code>StateGraph</code> (per ADR-0005 §1) in the AI Orchestrator implementing the workflow below. The input is a <strong>contract number + the CO's stated change</strong>; there is no document upload.</p>
+
+  <h3>Workflow State Order (hard rule, not convention)</h3>
+<pre>CO enters contract number + states the change (funding / PoP / scope)
+  → lookup_node (resolve contract # against the contract-of-record, agency-scoped)
+  → validate_lookup_node (found? exactly one match? within CO's agency?)
+  → populate static fields (Blocks 1,2,3,6,7,8,10A,10B,12 from the record)
+  → classify_modification_node (Block 13, dense retrieval — ADR-0005 §4)
+  → [Block 14 grounded sub-pipeline — ADR-0005 unchanged]
+        retrieve_node → confidence_check_node (≥0.85)
+        → draft_node (Haiku) → faithfulness_gate_node (≥0.85)
+  → assemble_form_node (agent tool calls populate the web form DRAFT)
+  → CO HITL GATE (approve / deny)
+        deny  → supersede + restart (fresh)
+        approve → CO-triggered submit (irreversible, FAR 43.102)
+  → audit (append-only, every node)</pre>
+
+  <h3>Workflow Diagram</h3>
+  <p>Each node is tagged with what executes it:</p>
+  <div class="legend">
+    <span class="b ai">[AI]</span> LLM via Bedrock (Claude Haiku; Sonnet only on confidence-fail rerank)
+    <span class="b tool">[TOOL]</span> deterministic / programmatic
+    <span class="b human">[HUMAN]</span> CO action
+    <span class="b ai-tool">[AI-&gt;TOOL]</span> AI agent invokes an allow-listed tool
+  </div>
+<pre class="diagram">  LEGEND:  [AI] LLM (Bedrock Claude)   [TOOL] programmatic/deterministic
+           [HUMAN] CO action           [AI-&gt;TOOL] AI agent invokes a tool
+
+                  +-------------------------------+
+                  | CO enters contract # + states |
+                  |   the change         [HUMAN]  |
+                  +---------------+---------------+
+                                  |
+                                  v
+                  +-------------------------------+
+                  |   lookup_node          [TOOL] |  query contract-of-
+                  |   resolve contract # against  |  record by # (FPDS-NG
+                  |   the contract-of-record      |  / SAM.gov -- MOCKED
+                  |   (agency-scoped)             |  Phase 1 per PRD)
+                  +---------------+---------------+
+                                  |
+                                  v
+                  +-------------------------------+
+                  |   validate_lookup      [TOOL] |  found? one match?
+                  |   (no fabrication; flag        |  in CO's agency?
+                  |    not-found / ambiguous)     |  else -> CO review
+                  +---------------+---------------+
+                                  |
+                                  v
+                  +-------------------------------+
+                  |  populate static fields [TOOL]|  Blocks 1,2,3,6,7,8,
+                  |  from the contract record     |  10A,10B,12 auto-fill
+                  |  (authoritative, not guessed) |  source-of-record cite
+                  +---------------+---------------+
+                                  |
+                                  v
+                  +-------------------------------+
+                  | classify_modification         |  dense retrieve [TOOL]
+                  |   node            [AI-&gt;TOOL]  |  feeds Haiku [AI]
+                  |   (Block 13, FAR 43.103 A-E)  |  classifier
+                  +---------------+---------------+
+                                  |
+  +===============================v=============================+
+  |  Block 14 grounded sub-pipeline   (ADR-0005, verbatim)      |
+  |                                                             |
+  |   retrieve_node      confidence_check  --( &lt; 0.85 )--+      |
+  |     [TOOL]      --&gt;     [AI]                          |      |
+  |   (/retrieve:               |                        |      |
+  |    hybrid RRF +             | &gt;= 0.85                |      |
+  |    cross-encoder,           v                        |      |
+  |    no LLM)            draft_node  [AI]               |      |
+  |                       (Haiku generates)             |      |
+  |                             |                        |      |
+  |                             v                        |      |
+  |                  faithfulness_gate  --( &lt; 0.85 )--+  |      |
+  |                       [AI]   |                    |  |      |
+  |                  (RAGAS judge)|                   |  |      |
+  +==============================|====================|==|======+
+                                 | &gt;= 0.85            |  |
+                                 v                    v  v
+                  +-------------------------------+   gate_status =
+                  | assemble_form_node [AI-&gt;TOOL] |   *_AWAITING_
+                  |  agent reasons, then calls    |   CO_REVIEW
+                  |  allow-listed write tools ->  |       |
+                  |  ContractModification DRAFT   |       |
+                  +---------------+---------------+       |
+                                  |                       |
+                                  v                       |
+                  +-------------------------------+       |
+                  |   CO HITL GATE (hard) [HUMAN] |&lt;------+
+                  |  shows: looked-up fields +    |
+                  |  source-of-record cite, draft,|
+                  |  citations, confidence +      |
+                  |  faithfulness, model id       |
+                  +------+-----------------+------+
+                    deny |                 | approve
+                         v                 v
+        +----------------------+   +-----------------------------+
+        | supersede + restart  |   | CO-triggered submit         |
+        |   [TOOL]             |   |   [HUMAN]-&gt;[TOOL]           |
+        | audit prior pkg,     |   | irreversible, FAR 43.102,   |
+        | re-run from lookup   |   | DRAFT -> MODIFICATION_REQ   |
+        +----------+-----------+   +-----------------------------+
+                   |
+                   +----------> (loop back to lookup_node)
+
+  Note: a not-found / ambiguous lookup, or a confidence/faithfulness
+  failure, does not dead-end -- it sets gate_status and surfaces at the
+  CO HITL gate, where the CO may retry, edit manually, or escalate.
+
+  AI vs programmatic summary:
+    [AI]       confidence_check, draft_node, faithfulness_gate
+               (Bedrock Claude calls)
+    [AI-&gt;TOOL] classify_modification_node, assemble_form_node
+               (agent reasons -&gt; deterministic tool/retrieval)
+    [TOOL]     lookup_node, validate_lookup, populate static fields,
+               retrieve_node, supersede/restart, submit REST write
+    [HUMAN]    contract-# entry + change statement, CO HITL gate,
+               submit trigger</pre>
+
+  <p>Steps cannot be reordered. The Block 14 sub-pipeline is <strong>ADR-0005 verbatim</strong>. This ADR replaces ADR-0006's upload/extract front end with the lookup front end; the form-fill tool layer, CO gate, submit, and audit are otherwise as ADR-0006.</p>
+
+  <h3>Model Strategy (inherits ADR-0004 / ADR-0005 — no override)</h3>
+  <ul>
+    <li><strong>Block 14 draft:</strong> Claude Haiku primary (<code>draft_node</code>), Sonnet fallback only on confidence-fail rerank.</li>
+    <li><strong>Classification + agent orchestration:</strong> Claude Haiku.</li>
+    <li><strong>Lookup is not an LLM step</strong> — it is a deterministic keyed database query. No model is involved in resolving the contract number or filling the static fields.</li>
+  </ul>
+
+  <h3>Contract Lookup (new — REQ-LOOKUP, replaces REQ-EXTRACT)</h3>
+  <p>The CO enters a <strong>contract number</strong> (the base contract being modified, e.g. <code>GS-35F-0001V</code>) and states the change. <code>lookup_node</code> resolves it against the government contract-of-record:</p>
+  <ul>
+    <li><strong>Source of record.</strong> Phase 1 resolves against the <strong>in-system contract-of-record</strong> (the <code>Award</code> / <code>Contract</code> / <code>Vendor</code> records). The production target is <strong>FPDS-NG</strong> (Federal Procurement Data System — authoritative contract-action record, keyed by PIID) for contract terms + mod history, and <strong>SAM.gov</strong> for contractor entity data (UEI / CAGE / address → Block 8).</li>
+    <li><strong>Mocked in Phase 1 (PRD non-goal).</strong> The PRD lists "Real DUNS / SAM.gov vendor verification" as <em>mock only</em>. So real FPDS-NG / SAM.gov calls are <strong>deferred</strong>; Phase 1 uses the seeded in-system records behind the same lookup interface.</li>
+    <li><strong>Keyed lookup, not fuzzy extraction.</strong> The contract number either resolves to exactly one record or it does not. There is no per-field extraction confidence — the looked-up values are authoritative. The failure modes are <strong>not-found</strong>, <strong>multiple matches</strong>, or <strong>cross-agency</strong> — each flags to the CO via <code>gate_status = "CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW"</code>; nothing is fabricated.</li>
+    <li><strong>Agency-scoped (tenant isolation, ADR-0005 §11).</strong> The lookup is filtered to the CO's agency — a CO cannot resolve another agency's contract. Enforced in <code>lookup_node</code>, not trusted from the request.</li>
+    <li><strong>Provenance = source-of-record citation</strong> (not a PyMuPDF bbox). Every auto-filled field carries: source system (e.g. <code>contract-of-record</code> / <code>FPDS-NG</code>), record id (e.g. PIID), field path, and fetch timestamp. Deterministic and auditable — produced by the lookup, never by the LLM.</li>
+  </ul>
+
+  <p><strong>What is looked up vs. what the CO provides:</strong></p>
+  <table>
+    <thead><tr><th>SF-30 content</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Blocks 1, 2, 3, 6, 7, 8, 10A, 10B, 12 (contract id, mod #, dates, offices, contractor, accounting)</td><td><strong>Looked up</strong> from the contract-of-record (mod # = next in the contract's mod history)</td></tr>
+      <tr><td>The change itself — funding delta, PoP change, scope (drives Block 13 + 14)</td><td><strong>CO-stated</strong> — this is new information that does not yet exist in any record</td></tr>
+      <tr><td>Block 13 (13A–13E) modification type/authority</td><td><strong>Classified</strong> by <code>classify_modification_node</code> (dense retrieval vs FAR 43.103)</td></tr>
+      <tr><td>Block 14 description / rationale</td><td><strong>RAG-drafted</strong> (ADR-0005 grounded pipeline)</td></tr>
+      <tr><td>Blocks 15–16 signatures</td><td>CO / contractor in the UI — never AI-generated</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Form-Fill Tool Layer (as ADR-0006)</h3>
+  <p>The agent writes to the existing <code>ContractModification</code> record via a bounded, allow-listed tool set (mapping to the real model fields). It writes only a <strong>draft</strong> (<code>status = "DRAFT"</code>); there is <strong>no <code>submit_modification</code> tool</strong> — submission is a CO-only UI action (FAR 43.102). It targets only <code>ContractModification</code>, never the pre-award <code>Amendment</code> model.</p>
+  <table>
+    <thead><tr><th>Tool</th><th>Writes (real model fields)</th><th>SF-30 block</th></tr></thead>
+    <tbody>
+      <tr><td><code>set_modification_basics(...)</code></td><td><code>contractNumber</code>, <code>modificationNumber</code>, <code>modType</code>, <code>farAuthority</code>, <code>effectiveDate</code>, <code>agencyId</code></td><td>1, 2, 3, 10A, 13</td></tr>
+      <tr><td><code>set_funding_pop(...)</code></td><td><code>fundingDelta</code>, <code>popStart</code>, <code>popEnd</code>, <code>contractorConsentRequired</code></td><td>12</td></tr>
+      <tr><td><code>set_block_14_rationale(...)</code></td><td><code>description</code> + <code>sections.changeNarrative</code>, <code>sections.priceCostImpact</code>, <code>sections.fundingCitation</code></td><td>14</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CO Hard Gate (inherits ADR-0004 §CO Gate UI + HITL)</h3>
+  <p>Before any CO action, the gate UI must display:</p>
+  <ul>
+    <li>The auto-filled Blocks 1–12 <strong>with their source-of-record citation</strong> (system + record id + fetch time) and any not-found/ambiguous flags.</li>
+    <li>Block 13 classified type/authority + governing FAR 43.103 citation.</li>
+    <li>Block 14 draft text, retrieved FAR/DFARS clause IDs + excerpts, citation mapping, confidence score, faithfulness score, and model ID + version.</li>
+  </ul>
+  <p>CO actions: <strong>Approve</strong> → CO triggers submission (irreversible, recorded). <strong>Deny</strong> → prior package invalidated and marked superseded; workflow restarts from <code>lookup_node</code>; the supersession event is audited (never a silent discard).</p>
+
+  <h3>Pause / Resume, Retry, Context (as ADR-0006)</h3>
+  <p>The CO gate is a LangGraph <strong>interrupt</strong> with a persisted MongoDB checkpoint; a paused package survives a multi-day delay and a restart and resumes without regeneration on approve (deny regenerates from scratch). Retry policy inherits ADR-0004/0005 §10 (max 4, backoff + 20% jitter) and applies to the lookup, Bedrock, and retrieval calls. No summarization/compression node — the package is small and the full audit trail is retained for DCAA replay.</p>
+
+  <h3>Audit Log (inherits ADR-0004 / ADR-0005 §12)</h3>
+  <p>Append-only, DCAA-auditable, correlation_id-threaded. Event types (revised front end):</p>
+  <ul>
+    <li><code>contract_lookup</code> — contract # queried, source system, record id, fetch timestamp, match result (found / not-found / ambiguous / cross-agency-rejected).</li>
+    <li><code>static_fields_populated</code> — which blocks were auto-filled from which record + source citation.</li>
+    <li><code>form_field_written</code> — which tool wrote which block to the draft.</li>
+    <li><code>co_decision</code> — approve/deny, CO identity + role + timestamp.</li>
+    <li><code>package_superseded</code> — on deny, prior chain marked non-reusable.</li>
+    <li><code>modification_submitted</code> — on approve, the irreversible execution record.</li>
+  </ul>
+
+  <hr>
+
+  <h2>State Schema Additions (extends ADR-0005 §1 TypedDict)</h2>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>contract_number</code></td><td>string</td><td>The base contract # the CO entered</td></tr>
+      <tr><td><code>change_request</code></td><td>dict</td><td>CO-stated change (funding delta, PoP, scope) — drives Blocks 13/14</td></tr>
+      <tr><td><code>contract_record</code></td><td>dict</td><td>The looked-up record + source-of-record citation</td></tr>
+      <tr><td><code>populated_fields</code></td><td>dict</td><td>Block → {value, source_citation}</td></tr>
+      <tr><td><code>form_draft_id</code></td><td>string</td><td>The draft modification record being populated</td></tr>
+      <tr><td><code>co_decision</code></td><td><code>pending</code> | <code>approved</code> | <code>denied</code></td><td>CO gate outcome</td></tr>
+    </tbody>
+  </table>
+  <p><code>gate_status</code> gains <code>CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW</code> (replacing ADR-0006's <code>EXTRACTION_LOW_CONFIDENCE_*</code>), alongside the ADR-0005 <code>RAG_FAILED_*</code> and <code>FAITHFULNESS_FAILED_*</code> states.</p>
+
+  <hr>
+
+  <h2>Code-Grounded Integration Notes (verified on <code>dev</code>)</h2>
+  <ol>
+    <li><strong>Block 14 must route through the real <code>/retrieve</code>, not the brownfield drafter.</strong> <code>POST /draft-contract-modification</code> (<code>app/main.py</code>) is the deliberately-broken stub (Item 4/5/6). The agentic <code>draft_node</code> consumes the ADR-0005 <code>/retrieve</code> read path + the Phase-2 gate nodes.</li>
+    <li><strong>Submit (FAR 43.102) is not enforceable until the write path checks CO role.</strong> <code>ContractModificationController</code> reads <code>@RequestHeader(value="X-User", defaultValue="anonymous")</code> — no role check on <code>create</code>/<code>update</code>/<code>publish</code>. <strong>Blocker for approve→submit.</strong></li>
+    <li><strong>Submit audit must be synchronous + transactional.</strong> <code>AuditLogger.recordAsync</code> (Item 2) flushes the response before writing and loses the row on crash. <code>modification_submitted</code> / <code>co_decision</code> / <code>package_superseded</code> must be written synchronously in-transaction, fail-closed.</li>
+    <li><strong>One identity convention across the seam (B1).</strong> Retrieval uses <code>X-Tenant-Id</code>/<code>X-User-Id</code>/<code>X-User-Role</code>; contract-modification-service uses a single <code>X-User</code>. Standardize on the <code>/retrieve</code> convention so correlation_id + role thread intact.</li>
+    <li><strong>Tenant scoping on both the lookup and the write path (Item 10).</strong> <code>agencyId</code> is on the model/DTO but unenforced (<code>listAll()</code> returns all agencies). The new <code>lookup_node</code> <em>and</em> the form-write path must scope by the gateway-asserted agency, or this workflow re-exposes the cross-tenant gap.</li>
+    <li><strong>The contract-lookup endpoint is net-new.</strong> No current endpoint resolves a contract <em>number</em> to a full contract-of-record for the AI flow (<code>GET /api/contract-modifications/{id}</code> is by Mongo id; <code>Award</code>/<code>Contract</code> have no lookup-by-number controller). Phase 1 backs it with the seeded in-system records; the FPDS-NG / SAM.gov adapter is a later-phase, mock-now integration.</li>
+  </ol>
+
+  <hr>
+
+  <h2>Alternatives Considered</h2>
+  <ol>
+    <li><strong>Upload a partial SF-30 + extract (ADR-0006's approach).</strong> Superseded — circular (the SF-30 is the output), required PyMuPDF + Tesseract OCR + an AGPL dependency, and contradicted ADR-0005 §4 (which sources Blocks 1–12 from the contract record). Lookup is authoritative, license-free, and §4-consistent.</li>
+    <li><strong>Live FPDS-NG / SAM.gov integration in Phase 1.</strong> Rejected for Phase 1 — the PRD marks real SAM.gov verification as mock-only, and a live call adds external auth, egress of SBU data, and availability risk. Mock now behind the lookup interface; real adapter later.</li>
+    <li><strong>CO types all of Blocks 1–12 manually (no lookup).</strong> Rejected — re-keying authoritative contract data is error-prone and the data already exists in the system of record. Lookup removes transcription error and grounds the static blocks in the contract record. (Manual entry remains the rollback path.)</li>
+    <li><strong>Ungrounded rationale drafting.</strong> Rejected (ADR-0004 Alt #1) — ungrounded FAR citations are a compliance violation. Block 14 stays on the ADR-0005 grounded pipeline.</li>
+    <li><strong>Agent holds a <code>submit_modification</code> tool.</strong> Rejected — FAR 43.102 reserves execution to the CO. Submission is a CO-only UI action.</li>
+  </ol>
+
+  <hr>
+
+  <h2>Consequences</h2>
+  <ul>
+    <li>The AI Orchestrator gains a <code>lookup_node</code> + a contract-of-record client (in-system Phase 1; FPDS-NG / SAM.gov adapter later, mocked now per PRD) and a form-fill tool layer.</li>
+    <li><strong>No PyMuPDF, no Tesseract, no AGPL license flag</strong> — the document-parsing dependency and its license concern (ADR-0006) are removed entirely. Net simplification.</li>
+    <li><strong>New external-dependency risk (production):</strong> the government DB's availability + auth. The lookup must retry (4/backoff/jitter), trip a circuit breaker on repeated failure, and write an audit record on every lookup outcome; a failed/ambiguous lookup surfaces to the CO and never fabricates a record.</li>
+    <li>Provenance shifts from PyMuPDF bbox to a <strong>source-of-record citation</strong> (system + record id + fetch time); the gate UI must render it so the CO can verify each auto-filled value against the system of record.</li>
+    <li><strong>Now consistent with ADR-0005 §4</strong> — Blocks 1–12 come from structured DB lookup exactly as §4 specifies (ADR-0006's extraction was the divergence).</li>
+    <li>Submission remains CO-only (FAR 43.102), enforced at the API Gateway.</li>
+    <li>All ADR-0004 / ADR-0005 gates (confidence 0.85, faithfulness 0.85, retry tests, audit schema, CO role verification) remain prerequisites.</li>
+  </ul>
+  <p><strong>Hard prerequisites before approve→submit can go live</strong> (existing brownfield debt this workflow forces closed on the write path):</p>
+  <ul>
+    <li>CO-identity verification on <code>create</code>/<code>update</code>/<code>publish</code> (close the anonymous-default header gap).</li>
+    <li>Synchronous + transactional + fail-closed audit for the submit/decision/supersede events (replace <code>recordAsync</code>).</li>
+    <li>One gateway-asserted identity convention across services (B1).</li>
+    <li>Agency scoping on the <code>lookup_node</code> and the write path (Item 10).</li>
+    <li>A new contract-lookup endpoint (by contract number) + the contract-of-record client.</li>
+  </ul>
+
+  <h2>Rollback Story</h2>
+  <p>If the lookup proves unreliable or the contract-of-record is unavailable, the workflow degrades gracefully: the CO enters Blocks 1–12 manually (the existing SF-30 wizard already supports manual entry). The Block 14 grounded pipeline (ADR-0005) is unaffected and still drafts from the CO's stated change. The audit log still records the lookup attempt, the source-of-record citation (or its absence), and the CO decision. No silent failure path — a failed lookup falls back to manual entry, never to a fabricated contract record.</p>
+
+  <p class="note">ADR-0006 (Alternative) — corrected front end for the SF-30 modification workflow (contract-number lookup, no upload). Open in any browser. An alternative to ADR-0006's upload/extraction front end; create a Markdown source if this becomes the accepted approach.</p>
+
+</div>
+
+<script>
+  // Color-code the [AI]/[TOOL]/[HUMAN]/[AI->TOOL] node tags inside the ASCII
+  // diagram. Single-pass alternation (compound tokens first) avoids nesting.
+  document.querySelectorAll('pre.diagram').forEach(function (pre) {
+    pre.innerHTML = pre.innerHTML.replace(
+      /\[AI-&gt;TOOL\]|\[TOOL\+AI\]|\[HUMAN\]-&gt;\[TOOL\]|\[AI\]|\[TOOL\]|\[HUMAN\]/g,
+      function (m) {
+        if (m === '[AI]')             return '<span class="b ai">[AI]</span>';
+        if (m === '[TOOL]')           return '<span class="b tool">[TOOL]</span>';
+        if (m === '[HUMAN]')          return '<span class="b human">[HUMAN]</span>';
+        if (m === '[TOOL+AI]')        return '<span class="b tool-ai">[TOOL+AI]</span>';
+        if (m === '[AI-&gt;TOOL]')    return '<span class="b ai-tool">[AI-&gt;TOOL]</span>';
+        if (m === '[HUMAN]-&gt;[TOOL]')
+          return '<span class="b human">[HUMAN]</span>-&gt;<span class="b tool">[TOOL]</span>';
+        return m;
+      }
+    );
+  });
+</script>
+</body>
+</html>

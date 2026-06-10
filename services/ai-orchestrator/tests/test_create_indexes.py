@@ -71,6 +71,60 @@ def test_text_index_still_indexes_chunk_text():
 
 
 # --------------------------------------------------------------------------- #
+# Finding 4 — vector index spec drift (drop + recreate, not skip-by-name)     #
+# --------------------------------------------------------------------------- #
+def _live_vector_index() -> dict:
+    """A list_search_indexes() entry that MATCHES the configured spec."""
+    return {
+        "name": config.FAR_VECTOR_INDEX,
+        "type": "vectorSearch",
+        "latestDefinition": {"fields": ci._vector_index_fields()},
+    }
+
+
+def test_no_drift_when_live_index_matches_spec():
+    assert ci.vector_index_drift(_live_vector_index()) is None
+
+
+def test_drift_detected_on_dimension_change():
+    """A 512→1024 numDimensions change must be flagged for drop+recreate."""
+    live = _live_vector_index()
+    for f in live["latestDefinition"]["fields"]:
+        if f["type"] == "vector":
+            f["numDimensions"] = config.EMBEDDING_DIMENSIONS + 512
+    drift = ci.vector_index_drift(live)
+    assert drift is not None
+    assert "numDimensions" in drift
+
+
+def test_drift_detected_on_filter_field_change():
+    """An extra/stale filter field (e.g. a legacy chunk_text filter) is drift."""
+    live = _live_vector_index()
+    live["latestDefinition"]["fields"].append({"type": "filter", "path": "chunk_text"})
+    drift = ci.vector_index_drift(live)
+    assert drift is not None
+    assert "filter fields" in drift
+
+
+def test_drift_detected_on_type_change():
+    live = _live_vector_index()
+    live["type"] = "search"
+    drift = ci.vector_index_drift(live)
+    assert drift is not None
+    assert "type" in drift
+
+
+def test_drift_reads_definition_key_fallback():
+    """Backends that report `definition` instead of `latestDefinition` still work."""
+    live = {
+        "name": config.FAR_VECTOR_INDEX,
+        "type": "vectorSearch",
+        "definition": {"fields": ci._vector_index_fields()},
+    }
+    assert ci.vector_index_drift(live) is None
+
+
+# --------------------------------------------------------------------------- #
 # Finding 2 — readiness poll terminal states                                  #
 # --------------------------------------------------------------------------- #
 class _FakeCollection:
