@@ -15,6 +15,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 COPY app ./app
+# Finding 4: scripts/ MUST be in the image — the entrypoint runs
+# `python -m scripts.create_indexes` to create the Atlas search indexes on
+# startup. Without this COPY the indexes never exist and every POST /retrieve
+# returns 502 'Both retrieval paths failed'.
+COPY scripts ./scripts
+RUN chmod +x ./scripts/entrypoint.sh
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run index bootstrap (idempotent) before exec'ing uvicorn. The entrypoint
+# fails loudly (non-zero exit) if index creation fails — §10 no-silent-failure.
+ENTRYPOINT ["./scripts/entrypoint.sh"]

@@ -28,7 +28,8 @@ while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
     [[ "$local_sha" == "0000000000000000000000000000000000000000" ]] && continue
 
     if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
-        range="${EMPTY_TREE}..${local_sha}"
+        base=$(git merge-base "origin/dev" "${local_sha}" 2>/dev/null || echo "${EMPTY_TREE}")
+        range="${base}..${local_sha}"
     else
         range="${remote_sha}..${local_sha}"
     fi

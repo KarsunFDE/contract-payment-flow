@@ -16,6 +16,11 @@ langgraph==1.2.4
 langchain-mongodb==0.11.0
 langchain-community==0.4.2
 langchain-text-splitters==1.1.2
+# Tokenizer backing RecursiveCharacterTextSplitter.from_tiktoken_encoder
+# (chunker.py, ADR-0005 §13 — 512-token sizing). Required: a fresh
+# `pip install -r requirements.txt` (Docker build, CI) has no tiktoken
+# otherwise and every chunk call raises.
+tiktoken==0.12.0
 # Bedrock embeddings + Claude invocation
 langchain-aws==1.5.0
 # NOTE: langchain-classic is a transitive dep of langchain-mongodb and

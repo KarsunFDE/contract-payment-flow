@@ -11,8 +11,15 @@ import org.springframework.context.annotation.Configuration;
  * Routes:
  *   /api/contract-modifications/**   → contract-modification-service:8081
  *   /api/invoice-reviews/**     → invoice-review-service:8082
- *   /api/ai/**              → ai-orchestrator:8000
+ *   /api/ai/**              → ai-orchestrator:8000 (StripPrefix(2))
  *   /api/public/**          → contract-modification-service (signature-skipped path — Item 1)
+ *
+ * The ai-orchestrator (FastAPI) mounts its routers at the service root —
+ * /corpus/*, /retrieve, /eval/*, /draft-amendment, /answer-qa, /agent/* — with
+ * no /api/ai prefix. StripPrefix(2) drops the two leading segments so the
+ * gateway convention /api/ai/<path> maps to the orchestrator's <path>
+ * (e.g. /api/ai/corpus/upload → /corpus/upload, /api/ai/retrieve → /retrieve,
+ * /api/ai/eval/ssdd-draft → /eval/ssdd-draft).
  */
 @Configuration
 public class RouteConfig {
@@ -29,7 +36,7 @@ public class RouteConfig {
         return builder.routes()
             .route("contractModifications", r -> r.path("/api/contract-modifications/**").uri(contractModificationUrl))
             .route("invoiceReviews",   r -> r.path("/api/invoice-reviews/**").uri(invoiceReviewUrl))
-            .route("ai",            r -> r.path("/api/ai/**").uri(aiUrl))
+            .route("ai",            r -> r.path("/api/ai/**").filters(f -> f.stripPrefix(2)).uri(aiUrl))
             // Item 1 — public path forwards to contract-modification-service after signature-skip.
             .route("public",        r -> r.path("/api/public/**").uri(contractModificationUrl))
             .build();

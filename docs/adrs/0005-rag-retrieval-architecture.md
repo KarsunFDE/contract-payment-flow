@@ -122,26 +122,33 @@ SF-30 post-award (Blocks 1–16C) has distinct data-needs per block. Not every b
 | 8 | Contractor Name/Address | Contractor record | Sparse keyword lookup |
 | 10A | Contract/Order No. being modified | Contract record | Structured DB query |
 | 10B | Dated | Contract record | Structured DB query |
-| 11 | Modification type (A–E per FAR 43.103) | FAR 43.103 definitions | **Dense retrieval** — semantic match to modification type |
 | 12 | Accounting and Appropriation Data | Financial records | Structured DB query |
-| **13** | **Description of Modification/Rationale** | **FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE corpus** | **Hybrid retrieval (dense + sparse) + re-rank** |
-| 14 | Contractor Signer Name/Title | Input / contract record | Not AI-generated |
-| 15 | Contractor Signature | CO UI action | Not AI-generated |
+| 13 (13A–13E) | Modification type / authority (FAR 43.103) | FAR 43.103 definitions | **Dense retrieval** — semantic match to modification type |
+| **14** | **Description of Modification/Rationale** | **FAR Part 42/43/32/52, DFARS 242/243/232, WAWF/PIEE corpus** | **Hybrid retrieval (dense + sparse) + re-rank** |
+| 15A | Contractor Signer Name/Title | Input / contract record | Not AI-generated |
+| 15B | Contractor Signature | CO UI action | Not AI-generated |
 | 16A | Contracting Officer Name/Title | CO identity from auth | Not AI-generated |
 | 16B–C | CO Signature + Date | CO UI action | Not AI-generated |
 
-**Block 13 is the only block requiring full hybrid RAG.** Block 11 needs dense-only retrieval for classification. All other blocks pull from structured records.
+> **SF-30 block numbering (corrected).** On the actual Standard Form 30, the
+> *modification type/authority* checkboxes are **Block 13 (13A–13E)** and the
+> *description of modification* narrative is **Block 14** — not 11 and 13 as an
+> earlier draft of this ADR stated. **Blocks 9A/9B and 11 are solicitation-amendment
+> items (pre-award) and are out of scope** (per ADR-0004) — they are intentionally
+> absent from the table above.
 
-**Block 13 pipeline (LangGraph nodes):**
+**Block 14 is the only block requiring full hybrid RAG.** Block 13 needs dense-only retrieval for classification. All other blocks pull from structured records.
+
+**Block 14 pipeline (LangGraph nodes):**
 
 1. `retrieve_node` — runs two parallel searches against the FAR/DFARS, WAWF/PIEE corpus: dense `$vectorSearch` via Titan V2 (k=20) and sparse `$search` BM25 (k=20). Results are merged using Reciprocal Rank Fusion (RRF) with weights 0.6 dense / 0.4 sparse to produce a combined candidate set. Cross-encoder re-ranking then narrows to the top 8 chunks, stored in `state["documents"]`.
 2. `confidence_check_node` — Haiku acts as LLM-as-judge, scoring each retrieved chunk 0.0–1.0 for relevance to the CO's modification query. Scores aggregate to `state["confidence"]`. Gate: score ≥ 0.85 → proceed to draft; score < 0.85 → `gate_status = "RAG_FAILED_AWAITING_CO_REVIEW"`.
-3. `draft_node` — Haiku generates Block 13 draft text grounded in `state["documents"]`. Only reached if confidence gate passed.
+3. `draft_node` — Haiku generates Block 14 draft text grounded in `state["documents"]`. Only reached if confidence gate passed.
 4. `faithfulness_gate_node` — RAGAS faithfulness judge (Claude Haiku, `temperature=0`) scores `state["draft"]` against `state["documents"]`. Score < 0.85 → `gate_status = "FAITHFULNESS_FAILED_AWAITING_CO_REVIEW"`, surface to CO: faithfulness score, which retrieved chunks the draft diverged from, and the full draft text. Score ≥ 0.85 → `gate_status = "passed"`. This gate catches post-retrieval hallucination — fabricated FAR citations not present in the retrieved chunks — which the `confidence_check_node` cannot detect.
 
-**Block 11 pipeline (LangGraph node):**
+**Block 13 pipeline (LangGraph node):**
 
-1. `classify_modification_node` — dense retrieval (k=5, cosine) against FAR 43.103 type definitions. Haiku classifies the modification into types A–E and stores the result in state.
+1. `classify_modification_node` — dense retrieval (k=5, cosine) against FAR 43.103 type definitions. Haiku classifies the modification into its Block 13 type/authority (13A change order, 13B administrative, 13C supplemental agreement, 13D other) and stores the result in state.
 
 ---
 
@@ -222,7 +229,7 @@ RAGAS is an evaluation framework for RAG pipelines that uses LLM-as-a-judge to s
 
 | RAGAS Metric | What it measures |
 |---|---|
-| **Faithfulness** | Is the generated Block 13 draft faithful to retrieved FAR clauses? |
+| **Faithfulness** | Is the generated Block 14 draft faithful to retrieved FAR clauses? |
 | **Answer Relevancy** | Does the draft actually address the CO's modification intent? |
 | **Context Precision** | Were the retrieved chunks actually relevant? (retrieval precision) |
 | **Context Recall** | Were all necessary FAR clauses retrieved? (retrieval recall) |
@@ -231,7 +238,7 @@ RAGAS is an evaluation framework for RAG pipelines that uses LLM-as-a-judge to s
 
 **CI regression gate (blocks merge):** On any PR touching `retrieve_node`, `draft_node`, prompt templates, or the embedding pipeline — run RAGAS faithfulness against the golden set. If `faithfulness_score < baseline_faithfulness × 0.95` (relative 5% drop), CI fails and the PR is blocked. Baseline is stored in `eval/faithfulness_baseline.json` in the repo root and updated manually after intentional quality improvements.
 
-- **Golden set:** 10 Block 13 samples minimum (query + ground-truth FAR citations + expected draft), stored in `eval/golden_set.json`. RAGAS judge must run at `temperature=0` for CI determinism — nondeterministic judge runs cause false-positive CI failures.
+- **Golden set:** 10 Block 14 samples minimum (query + ground-truth FAR citations + expected draft), stored in `eval/golden_set.json`. RAGAS judge must run at `temperature=0` for CI determinism — nondeterministic judge runs cause false-positive CI failures.
 - **CI scope:** PRs not touching the above files skip the faithfulness regression gate.
 
 Run full RAGAS evaluation (all four metrics):
@@ -253,7 +260,7 @@ This is the `confidence_check_node` described in Section 4. Haiku scores each re
 | Stale embeddings after model change | Old vectors are incompatible with new embedding model | Embedding model version tagged on every chunk; index rebuilt on model change |
 | Missing provenance metadata | Can't trace a citation back to its source chunk | Every chunk stores `source_document`, `far_part`, `clause_number`, `ingested_by` |
 | No confidence gate | Hallucinated FAR citations reach the CO | ADR-0004 0.85 threshold enforced in `confidence_check_node` |
-| Retrieval without re-ranking | Top-k by cosine distance ≠ top-k by relevance | Cross-encoder re-ranking inside `retrieve_node` on every Block 13 query |
+| Retrieval without re-ranking | Top-k by cosine distance ≠ top-k by relevance | Cross-encoder re-ranking inside `retrieve_node` on every Block 14 query |
 | Treating all SF-30 blocks as RAG | Wastes Bedrock calls on fields that are direct DB lookups | Block-routing table (Section 4) |
 | Single retrieval strategy for all queries | FAR clause numbers need keyword match; modification rationale needs semantic match | Hybrid dense + sparse with RRF fusion |
 | No faithfulness gate | Confidence gate checks retrieval quality, not generation quality — LLM can hallucinate FAR citations not present in retrieved chunks while still passing the 0.85 confidence gate | `faithfulness_gate_node` after `draft_node`; CI regression block on golden set |
@@ -364,7 +371,7 @@ No contract-instance data enters the vector index regardless of tenant scope.
 |---|---|---|
 | `correlation_id` | UUID | Generated at CO request entry; shared across all pipeline node audit records for this request — enables full request traceability across retrieval, confidence check, draft, and faithfulness gate log entries |
 | `retrieval_id` | UUID | Unique identifier for this retrieval event |
-| `sf30_block` | string | Which SF-30 block triggered this retrieval (e.g., `"13"`) |
+| `sf30_block` | string | Which SF-30 block triggered this retrieval (e.g., `"14"`) |
 | `contract_id` | string | The contract number being modified |
 | `tenant_id` | string | The tenant namespace used in the query filter |
 | `user_id` | string | CO identity |
@@ -420,7 +427,7 @@ Use established LangChain tooling — do not write a custom chunker unless secti
 
 **Query result cache:** Not implemented. Retrieval results change as the corpus updates and caching them would create audit integrity issues (stale results would be non-traceable to current corpus state).
 
-**Pre-warm at startup:** On AI Orchestrator startup, execute one warmup `$vectorSearch` query against the FAR corpus. This forces `mongot` to load the vector index into memory so the first real CO query does not pay a cold-start penalty. The warmup query is a representative Block 13 query (e.g., a common modification type query against FAR 43.103).
+**Pre-warm at startup:** On AI Orchestrator startup, execute one warmup `$vectorSearch` query against the FAR corpus. This forces `mongot` to load the vector index into memory so the first real CO query does not pay a cold-start penalty. The warmup query is a representative Block 14 query (e.g., a common modification-rationale query against FAR 43.103).
 
 ---
 
@@ -509,7 +516,7 @@ Established tools we use — no custom implementation needed for any of these:
 
 ### Step 6: Verify and Go Live
 
-1. Execute at least 10 representative Block 13 queries covering different modification types
+1. Execute at least 10 representative Block 14 queries covering different modification types
 2. Verify retrieved chunks include correct FAR/DFARS clause citations with provenance metadata
 3. Confirm confidence scores meet the 0.85 threshold on the golden test set
 4. Verify all Spring Boot services operate normally (CRUD, existing seed data accessible)
@@ -530,9 +537,9 @@ Established tools we use — no custom implementation needed for any of these:
 - LangFuse Docker service deferred to Phase 2 (2026-06-10) — Phase 1 uses structured JSON audit logs + `correlation_id` only. When added, LangFuse requires its own service in `docker-compose.yml` plus two new env vars (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`)
 - Corpus admin role must be defined in auth before corpus ingestion can begin (HITL gate requirement)
 - Any `from langchain_classic import` anywhere in the codebase fails CI — linter rule required
-- Block 13 retrieval adds ~300–500ms latency per CO query (embedding + vector search + re-rank) — within acceptable UX range; baseline in LangFuse from day one
+- Block 14 retrieval adds ~300–500ms latency per CO query (embedding + vector search + re-rank) — within acceptable UX range; baseline in LangFuse from day one
 - CI faithfulness regression gate requires Bedrock access in the CI environment and `eval/faithfulness_baseline.json` committed to the repo root
-- `eval/golden_set.json` (10+ Block 13 samples) must be created and committed before the CI gate is enforced — gate is warn-only until golden set exists
+- `eval/golden_set.json` (10+ Block 14 samples) must be created and committed before the CI gate is enforced — gate is warn-only until golden set exists
 
 ---
 
