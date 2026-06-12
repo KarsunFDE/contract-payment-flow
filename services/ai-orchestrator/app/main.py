@@ -65,6 +65,10 @@ from app.bedrock_client import invoke_model, BEDROCK_MODEL_ID, AWS_REGION
 from app.ingestion.router import router as ingestion_router
 from app.retrieval.router import router as retrieval_router
 
+# M3 Phase 0 (Foundation) — the agent workflow lives in app/workflow/. Mounted
+# additively here; only a status probe is exposed until the runner lands (Phase 4).
+from app.workflow.router import router as workflow_router
+
 # ⚠ DELIBERATE — no correlation-ID in the log format (Item 6).
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +82,7 @@ app = FastAPI(title="ai-orchestrator", version="0.1.0-brownfield")
 # main.py again this week.
 app.include_router(ingestion_router)
 app.include_router(retrieval_router)
+app.include_router(workflow_router)  # M3 Phase 0 — workflow surface (status probe)
 
 
 class DraftRequest(BaseModel):

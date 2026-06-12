@@ -89,9 +89,9 @@ Each node is tagged with what executes it:
                                   v
                   +-------------------------------+
                   |   lookup_node          [TOOL] |  query contract-of-
-                  |   resolve contract # against  |  record by # (FPDS-NG
-                  |   the contract-of-record      |  / SAM.gov -- MOCKED
-                  |   (agency-scoped)             |  Phase 1 per PRD)
+                  |   resolve contract # against  |  record by # via SAM.gov
+                  |   the contract-of-record      |  API, programmatically
+                  |   (agency-scoped)             |  (MOCK in Phase 1)
                   +---------------+---------------+
                                   |
                                   v
@@ -206,14 +206,18 @@ layer, CO gate, submit, and audit are otherwise as ADR-0006.
 The CO enters a **contract number** (the base contract being modified, e.g. `GS-35F-0001V`)
 and states the change. `lookup_node` resolves it against the government contract-of-record:
 
-- **Source of record.** Phase 1 resolves against the **in-system contract-of-record** (the
-  `Award` / `Contract` / `Vendor` records). The production target is **FPDS-NG** (Federal
-  Procurement Data System — authoritative contract-action record, keyed by PIID) for contract
-  terms + mod history, and **SAM.gov** for contractor entity data (UEI / CAGE / address →
-  Block 8).
-- **Mocked in Phase 1 (PRD non-goal).** The PRD lists "Real DUNS / SAM.gov vendor
-  verification" as *mock only*. So real FPDS-NG / SAM.gov calls are **deferred**; Phase 1 uses
-  the seeded in-system records behind the same lookup interface.
+- **Source of record = the SAM.gov API, fetched programmatically.** The contract-of-record is
+  resolved through the official **SAM.gov API** — the **Contract Awards API**
+  (`open.gsa.gov/api/contract-awards/`) for contract terms + mod history (keyed by PIID) and the
+  **Entity Management API** (`open.gsa.gov/api/entity-api/`) for contractor entity data
+  (UEI / CAGE / address → Block 8). The fetch is **deterministic backend code in `lookup_node`,
+  never an AI/agent tool call** (consistent with "Lookup is not an LLM step"): the agent has no
+  SAM.gov tool and cannot widen the query, spoof a record, or cross the agency boundary.
+- **Mock-backed in Phase 1 (PRD §4 non-goal).** The PRD lists "Real DUNS / SAM.gov vendor
+  verification" as *mock only*. So Phase 1 ships a **mock SAM.gov client that implements the live
+  API's request/response shape**, seeded from the in-system `Award` / `Contract` / `Vendor`
+  fixtures. Swapping the mock for the live SAM.gov adapter is a **client-internal change**; the
+  lookup interface and the workflow do not change.
 - **Keyed lookup, not fuzzy extraction.** The contract number either resolves to exactly one
   record or it does not. There is no per-field extraction confidence — the looked-up values
   are authoritative. The failure modes are **not-found**, **multiple matches**, or
@@ -223,7 +227,7 @@ and states the change. `lookup_node` resolves it against the government contract
   agency — a CO cannot resolve another agency's contract. Enforced in `lookup_node`, not
   trusted from the request.
 - **Provenance = source-of-record citation** (not a PyMuPDF bbox). Every auto-filled field
-  carries: source system (e.g. `contract-of-record` / `FPDS-NG`), record id (e.g. PIID), field
+  carries: source system (e.g. `SAM.gov` / `contract-of-record`), record id (e.g. PIID), field
   path, and fetch timestamp. Deterministic and auditable — produced by the lookup, never by
   the LLM.
 
@@ -361,8 +365,9 @@ Append-only, DCAA-auditable, correlation_id-threaded. Event types (revised front
 6. **The contract-lookup endpoint is net-new.** No current endpoint resolves a contract
    *number* to a full contract-of-record for the AI flow (`GET /api/contract-modifications/{id}`
    is by Mongo id; `Award`/`Contract` have no lookup-by-number controller). Phase 1 backs it
-   with the seeded in-system records; the FPDS-NG / SAM.gov adapter is a later-phase, mock-now
-   integration.
+   with a **mock SAM.gov client** shaped to the live SAM.gov API (Contract Awards + Entity
+   Management), seeded from the in-system records; the live adapter is a later client-internal
+   swap. The fetch is programmatic `lookup_node` code, never an AI tool.
 
 ---
 
@@ -372,9 +377,11 @@ Append-only, DCAA-auditable, correlation_id-threaded. Event types (revised front
    is the output), required PyMuPDF + Tesseract OCR + an AGPL dependency, and contradicted
    ADR-0005 §4 (which sources Blocks 1–12 from the contract record). Lookup is authoritative,
    license-free, and §4-consistent.
-2. **Live FPDS-NG / SAM.gov integration in Phase 1.** Rejected for Phase 1 — the PRD marks real
-   SAM.gov verification as mock-only, and a live call adds external auth, egress of SBU data,
-   and availability risk. Mock now behind the lookup interface; real adapter later.
+2. **Live SAM.gov integration in Phase 1.** Rejected for Phase 1 — the PRD §4 marks real SAM.gov
+   verification as mock-only, and a live call adds external auth, egress of SBU data, and
+   availability risk. The **SAM.gov API is the chosen contract-of-record interface, called
+   programmatically** (deterministic `lookup_node`, never the AI); Phase 1 backs it with a mock
+   client implementing that API's shape, and the live adapter is a later client-internal swap.
 3. **CO types all of Blocks 1–12 manually (no lookup).** Rejected — re-keying authoritative
    contract data is error-prone and the data already exists in the system of record. Lookup
    removes transcription error and grounds the static blocks in the contract record. (Manual
@@ -393,14 +400,16 @@ Append-only, DCAA-auditable, correlation_id-threaded. Event types (revised front
 
 ## Consequences
 
-- The AI Orchestrator gains a `lookup_node` + a contract-of-record client (in-system Phase 1;
-  FPDS-NG / SAM.gov adapter later, mocked now per PRD) and a form-fill tool layer.
+- The AI Orchestrator gains a `lookup_node` + a contract-of-record client (a **mock SAM.gov
+  client** shaped to the live SAM.gov API in Phase 1; live adapter later) and a form-fill tool
+  layer. The client is called programmatically — the agent never fetches from SAM.gov.
 - **No PyMuPDF, no Tesseract, no AGPL license flag** — the document-parsing dependency and its
   license concern (ADR-0006) are removed entirely. Net simplification.
-- **New external-dependency risk (production):** the government DB's availability + auth. The
-  lookup must retry (4/backoff/jitter), trip a circuit breaker on repeated failure, and write
-  an audit record on every lookup outcome; a failed/ambiguous lookup surfaces to the CO and
-  never fabricates a record.
+- **New external-dependency risk (production):** the **SAM.gov API**'s availability + auth (rate
+  limits, API key, egress). The lookup must retry (4/backoff/jitter), trip a circuit breaker on
+  repeated failure, and write an audit record on every lookup outcome; a failed/ambiguous lookup
+  surfaces to the CO and never fabricates a record. The Phase-1 mock client exercises the same
+  failure surfaces so the live swap inherits the handling.
 - Provenance shifts from PyMuPDF bbox to a **source-of-record citation** (system + record id +
   fetch time); the gate UI must render it so the CO can verify each auto-filled value against
   the system of record.

@@ -103,6 +103,8 @@ services:
   ai-orchestrator:
     build:
       context: ../../services/ai-orchestrator
+    env_file:
+      - path: ../../.env
     image: contract-payment-flow/ai-orchestrator:latest   # ⚠ Item 11
     # Security review finding 1: NOT host-published. The corpus-write auth
     # (app/ingestion/auth.py) trusts gateway-asserted X-User-* headers, which is
@@ -116,12 +118,6 @@ services:
       AWS_REGION: us-east-1
       BEDROCK_MODEL_ID: anthropic.claude-3-7-sonnet-20250219-v1:0
       MONGO_URL: mongodb://app:app_dev_password@mongodb:27017
-      # Bedrock bearer-token auth (ADR-0005 §4 / Migration Step 4). Interpolated
-      # from the repo-root .env — bring the stack up with:
-      #   docker-compose -f infra/docker/docker-compose.yml --env-file ../../.env up
-      # (or `--env-file .env` from repo root). Empty string if unset, so the
-      # mock-Bedrock path still works without real creds.
-      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
     volumes:
       - ../../data:/app/data
     depends_on:
