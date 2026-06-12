@@ -103,6 +103,9 @@ services:
   ai-orchestrator:
     build:
       context: ../../services/ai-orchestrator
+    # Loads the ENTIRE repo-root .env into this container — broader than the
+    # single AWS_BEARER_TOKEN_BEDROCK it replaces. Acceptable for the dev stack;
+    # least-privilege (per-service env files) is the production posture.
     env_file:
       - path: ../../.env
     image: contract-payment-flow/ai-orchestrator:latest   # ⚠ Item 11

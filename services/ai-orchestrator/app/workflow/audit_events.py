@@ -69,10 +69,21 @@ def record_event(state: WorkflowState, event_type: str, details: dict) -> None:
 
     Pulls correlation_id + agency_id + form_draft_id off the run state so every
     event in a run shares the same correlation_id (ADR-0005 §12 traceability).
-    Callers treat a raised exception as fatal for the step (fail-closed).
+    Raises ValueError if the state has no correlation_id — an untraceable event
+    must never be written. Callers treat a raised exception as fatal for the
+    step (fail-closed).
     """
+    # Fail-closed BEFORE touching the DB: an empty correlation_id would make the
+    # event unreconstructable, defeating the whole point of this module.
+    correlation_id = state.get("correlation_id")
+    if not correlation_id:
+        raise ValueError(
+            f"workflow audit event '{event_type}' has no correlation_id — "
+            "every run must mint one at entry (ADR-0005 §12)"
+        )
+
     record = WorkflowAuditRecord(
-        correlation_id=state.get("correlation_id", ""),
+        correlation_id=correlation_id,
         event_type=event_type,
         agency_id=state.get("agency_id"),
         form_draft_id=state.get("form_draft_id"),
