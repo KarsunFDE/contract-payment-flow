@@ -30,10 +30,10 @@ class FakeRetrieveClient:
 
 @pytest.fixture
 def fake_retrieval():
+    """Swap in the fake; conftest's autouse fixture restores the real client."""
     fake = FakeRetrieveClient()
     retrieve_client.set_client(fake)
     yield fake
-    retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
 
 
 def _fake_call_json(data: BaseModel):
@@ -88,12 +88,10 @@ def test_classify_threads_tenant_identity_into_retrieval(fake_retrieval, monkeyp
 
 
 def test_classify_fails_soft_when_retrieval_unavailable(monkeypatch):
-    """G2 grounded-or-withheld: no FAR context -> unclassified + CO review."""
+    """G2 grounded-or-withheld: no FAR context -> unclassified + CO review.
+    (conftest autouse fixture restores the real client after every test.)"""
     retrieve_client.set_client(FakeRetrieveClient(fail=True))
-    try:
-        update = nodes_classify.classify_modification_node(dict(_STATE))
-    finally:
-        retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
+    update = nodes_classify.classify_modification_node(dict(_STATE))
 
     assert update["gate_status"] == "BLOCK13_UNCLASSIFIED_AWAITING_CO_REVIEW"
     assert update["block13_classification"]["mod_type"] == "unknown"

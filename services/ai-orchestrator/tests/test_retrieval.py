@@ -34,10 +34,10 @@ class FakeRetrieveClient:
 
 @pytest.fixture
 def fake_retrieval():
+    """Swap in the fake; conftest's autouse fixture restores the real client."""
     fake = FakeRetrieveClient()
     retrieve_client.set_client(fake)
     yield fake
-    retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
 
 
 def _fake_judge(scores=None, faithfulness=None):
@@ -70,10 +70,7 @@ def test_retrieve_node_returns_chunks_and_threads_identity(fake_retrieval):
 
 def test_retrieve_node_fails_soft_to_co_review():
     retrieve_client.set_client(FakeRetrieveClient(fail=True))
-    try:
-        update = nodes_retrieval.retrieve_node(dict(_STATE))
-    finally:
-        retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
+    update = nodes_retrieval.retrieve_node(dict(_STATE))
     assert update["gate_status"] == "RAG_FAILED_AWAITING_CO_REVIEW"
     assert update["retrieved_chunks"] == []
     assert update["confidence"] == 0.0

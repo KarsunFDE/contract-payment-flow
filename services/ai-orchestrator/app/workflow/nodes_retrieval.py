@@ -26,7 +26,7 @@ from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 
 from app import bedrock_client, config
-from app.workflow import llm, retrieve_client
+from app.workflow import llm, prompt_guard, retrieve_client
 from app.workflow.state import WorkflowState
 
 log = logging.getLogger("ai-orchestrator.workflow.retrieval")
@@ -48,20 +48,21 @@ class FaithfulnessVerdict(BaseModel):
 _JUDGE_SYSTEM = (
     "You are a retrieval-relevance judge (ADR-0005 §4). Score EACH provided "
     "chunk 0-1 for how well it grounds the stated change request. Return ONLY "
-    'a JSON object: {"scores": [..]} with exactly one score per chunk, in order.'
+    'a JSON object: {"scores": [..]} with exactly one score per chunk, in '
+    "order." + prompt_guard.DATA_GUARD
 )
 
 _DRAFT_SYSTEM = (
     "You draft FAR Part 43-compliant SF-30 Block 14 modification rationale, "
     "grounded ONLY in the provided clauses. If the clauses do not support the "
-    "change, say so rather than inventing support."
+    "change, say so rather than inventing support." + prompt_guard.DATA_GUARD
 )
 
 _FAITHFULNESS_SYSTEM = (
     "You are a faithfulness judge (RAGAS-style, ADR-0005 §7). Score 0-1 how "
     "fully every claim in the draft is supported by the provided clauses; list "
     "unsupported claims. Return ONLY a JSON object: "
-    '{"score": <0-1>, "unsupported_claims": [..]}.'
+    '{"score": <0-1>, "unsupported_claims": [..]}.' + prompt_guard.DATA_GUARD
 )
 
 
@@ -71,9 +72,9 @@ def retrieve_node(state: WorkflowState) -> dict:
     Failure -> empty chunks + RAG_FAILED_AWAITING_CO_REVIEW (fail soft to gate).
     """
     change = state.get("change_request") or {}
-    agency_id, user_id, role = retrieve_client.identity_for(state)
 
     try:
+        agency_id, user_id, role = retrieve_client.identity_for(state)
         chunks = retrieve_client.retrieve(
             str(change.get("scope", "")),
             sf30_block="14",
@@ -113,11 +114,14 @@ def confidence_check_node(state: WorkflowState) -> dict:
         return {"confidence": 0.0, "gate_status": "RAG_FAILED_AWAITING_CO_REVIEW"}
 
     change = state.get("change_request") or {}
+    # Untrusted text (CO-typed scope, corpus chunks) rides in data envelopes
+    # (review finding 1).
     numbered = "\n\n".join(
-        f"[chunk {i}] {c.get('chunk_text', '')}" for i, c in enumerate(chunks)
+        prompt_guard.data_block(f"chunk {i}", c.get("chunk_text", ""))
+        for i, c in enumerate(chunks)
     )
     prompt = (
-        f"Change request: {change.get('scope', '')}\n\n"
+        f"{prompt_guard.data_block('change_request', str(change.get('scope', '')))}\n\n"
         f"Chunks ({len(chunks)}):\n{numbered}"
     )
 
@@ -150,8 +154,8 @@ def draft_node(state: WorkflowState) -> dict:
     chunks = state.get("retrieved_chunks") or []
     grounding = "\n\n".join(c.get("chunk_text", "") for c in chunks)
     answer = bedrock_client.invoke_model(
-        f"Change: {state.get('change_request')}\n"
-        f"Grounding clauses:\n{grounding}\n\n"
+        f"{prompt_guard.data_block('change_request', state.get('change_request') or {})}\n"
+        f"{prompt_guard.data_block('grounding_clauses', grounding)}\n\n"
         f"Draft the SF-30 Block 14 modification rationale.",
         system=_DRAFT_SYSTEM,
     )
@@ -167,8 +171,8 @@ def faithfulness_gate_node(state: WorkflowState) -> dict:
     chunks = state.get("retrieved_chunks") or []
     grounding = "\n\n".join(c.get("chunk_text", "") for c in chunks)
     prompt = (
-        f"Draft:\n{state.get('block_14_draft', '')}\n\n"
-        f"Clauses:\n{grounding}"
+        f"{prompt_guard.data_block('draft', state.get('block_14_draft', ''))}\n\n"
+        f"{prompt_guard.data_block('clauses', grounding)}"
     )
 
     try:

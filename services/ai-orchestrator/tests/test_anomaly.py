@@ -140,6 +140,7 @@ _FLAG_STATE = {
 
 
 def test_adjudicator_substantiates_against_retrieved_far(monkeypatch):
+    """(conftest autouse fixture restores the real client after every test.)"""
     retrieve_client.set_client(_FakeRetrieve())
 
     def _verdict(prompt, *, schema, system=None, **kwargs):
@@ -149,10 +150,7 @@ def test_adjudicator_substantiates_against_retrieved_far(monkeypatch):
             model="m", model_version="v1:0",
         )
     monkeypatch.setattr(llm, "call_json", _verdict)
-    try:
-        update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
-    finally:
-        retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
+    update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
 
     assert update["adjudications"][0]["verdict"] == "substantiated"
     assert update["adjudications"][0]["flag_code"] == "UNALLOWABLE_COST_SUSPECT"
@@ -161,10 +159,7 @@ def test_adjudicator_substantiates_against_retrieved_far(monkeypatch):
 def test_adjudicator_fails_closed_when_retrieval_down(monkeypatch):
     """G2: an unverifiable flag is error_failed_closed, never dismissed."""
     retrieve_client.set_client(_FakeRetrieve(fail=True))
-    try:
-        update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
-    finally:
-        retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
+    update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
     assert update["adjudications"][0]["verdict"] == "error_failed_closed"
 
 
@@ -174,8 +169,5 @@ def test_adjudicator_fails_closed_on_judge_error(monkeypatch):
     def _reject(prompt, *, schema, system=None, **kwargs):
         raise llm.LLMOutputError("stub (test)")
     monkeypatch.setattr(llm, "call_json", _reject)
-    try:
-        update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
-    finally:
-        retrieve_client.set_client(retrieve_client.RouterRetrieveClient())
+    update = nodes_triage.adjudicator_node(dict(_FLAG_STATE))
     assert update["adjudications"][0]["verdict"] == "error_failed_closed"

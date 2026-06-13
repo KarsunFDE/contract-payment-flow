@@ -19,6 +19,7 @@ import pytest
 from pymongo.errors import OperationFailure
 
 from app import db
+from app.workflow import retrieve_client
 
 
 def _matches(doc: dict, query: dict) -> bool:
@@ -84,3 +85,12 @@ def fake_mongo(monkeypatch):
     fake = FakeDb()
     monkeypatch.setattr(db, "get_db", lambda: fake)
     yield fake
+
+
+@pytest.fixture(autouse=True)
+def _restore_retrieve_client():
+    """Tests swap the workflow's retrieve client via set_client(); restore the
+    real implementation after EVERY test so a setup failure between a swap and
+    its try/finally can never leak a fake into later tests."""
+    yield
+    retrieve_client.set_client(retrieve_client.RouterRetrieveClient())

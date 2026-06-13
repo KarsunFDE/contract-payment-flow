@@ -125,13 +125,21 @@ def retrieve(
 def identity_for(state: WorkflowState) -> tuple[str, str, str]:
     """(agency_id, user_id, role) for a retrieval made by this run.
 
-    agency_id comes from the run state (tenant scope — ADR-0005 §11). user/role
+    agency_id comes from the run state (tenant scope — ADR-0005 §11); raises
+    ValueError when absent so the gap surfaces at the call site, not deep in
+    the router. Callers invoke this inside their fail-soft try blocks. user/role
     use runner-threaded overrides in change_request when present, else the
     workflow service principal.
     """
+    agency_id = state.get("agency_id")
+    if not agency_id:
+        raise ValueError(
+            "run state has no agency_id — tenant scope is never defaulted "
+            "(ADR-0005 §11)"
+        )
     change = state.get("change_request") or {}
     return (
-        state.get("agency_id", ""),
+        agency_id,
         change.get("requested_by_user_id", WORKFLOW_USER_ID),
         change.get("requested_by_role", WORKFLOW_ROLE),
     )

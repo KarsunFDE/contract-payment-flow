@@ -31,6 +31,7 @@ from app.workflow import (
     execution_log,
     llm,
     mock_executor,
+    prompt_guard,
     retrieve_client,
 )
 from app.workflow.audit_events import record_event
@@ -54,6 +55,7 @@ _SCOPE_SYSTEM = (
     "You judge whether a proposed contract modification is OUT OF SCOPE of the "
     "original contract (a cardinal change). Detection only — you do not decide "
     'disposition. Return ONLY JSON: {"out_of_scope": bool, "rationale": str}.'
+    + prompt_guard.DATA_GUARD
 )
 
 
@@ -73,8 +75,8 @@ def anomaly_detector_node(state: TriageState) -> dict:
     if item_type == "modification" and item.get("scope"):
         try:
             result = llm.call_json(
-                f"Original scope summary: {item.get('original_scope', '(not provided)')}\n"
-                f"Proposed change: {item.get('scope')}",
+                f"{prompt_guard.data_block('original_scope', str(item.get('original_scope', '(not provided)')))}\n"
+                f"{prompt_guard.data_block('proposed_change', str(item.get('scope')))}",
                 schema=ScopeVerdict,
                 system=_SCOPE_SYSTEM,
             )
@@ -107,7 +109,7 @@ _ADJUDICATE_SYSTEM = (
     "substantiated ONLY if a real, retrieved clause supports it — otherwise "
     "dismissed. Return ONLY JSON: "
     '{"verdict": "substantiated"|"dismissed", "far_cite": str|null, '
-    '"precedent_id": str|null, "rationale": str}.'
+    '"precedent_id": str|null, "rationale": str}.' + prompt_guard.DATA_GUARD
 )
 
 
@@ -125,7 +127,6 @@ def adjudicator_node(state: TriageState) -> dict:
     adjudication that cannot complete fails CLOSED — verdict
     `error_failed_closed`, which the router counts as substantiated.
     """
-    agency_id, user_id, role = retrieve_client.identity_for(state)
     results = []
 
     for flag in state.get("anomaly_flags") or []:
@@ -137,6 +138,7 @@ def adjudicator_node(state: TriageState) -> dict:
             "rationale": "",
         }
         try:
+            agency_id, user_id, role = retrieve_client.identity_for(state)
             clauses = retrieve_client.retrieve(
                 f"FAR {flag.get('far_part', '')}: {flag.get('detail', '')}",
                 sf30_block=_sf30_tag(flag.get("far_part", "")),
@@ -154,8 +156,15 @@ def adjudicator_node(state: TriageState) -> dict:
 
         clause_text = "\n\n".join(c.get("chunk_text", "") for c in clauses)
         try:
+            # The flag's detail carries outside-party text (e.g. a vendor's
+            # invoice description) — envelope it; scalars stay structural
+            # (review finding 1: a crafted detail steering the verdict to
+            # "dismissed" is the auto-lane money path).
             verdict = llm.call_json(
-                f"Flag: {flag}\nFAR + precedent:\n{clause_text}",
+                f"Flag code: {flag.get('code')} | severity: {flag.get('severity')} "
+                f"| FAR part: {flag.get('far_part')}\n"
+                f"{prompt_guard.data_block('flag_detail', str(flag.get('detail', '')))}\n"
+                f"{prompt_guard.data_block('far_and_precedent', clause_text)}",
                 schema=Adjudication,
                 system=_ADJUDICATE_SYSTEM,
             )
@@ -215,8 +224,10 @@ def _within_delegated_authority(state: TriageState) -> bool:
     return bool((state.get("change_request") or {}).get("within_delegated_authority"))
 
 
-def _substantiated(adjudications: list[dict]) -> list[dict]:
-    """Anything not affirmatively dismissed counts (fail-closed: errors stand)."""
+def _non_dismissed(adjudications: list[dict]) -> list[dict]:
+    """Anything not affirmatively dismissed counts toward escalation —
+    `substantiated` AND `error_failed_closed` both stand (an unverifiable flag
+    never clears the auto lane)."""
     return [a for a in adjudications if a.get("verdict") != "dismissed"]
 
 
@@ -239,7 +250,7 @@ def decision_router_node(
     that both records the lane (update=) and routes to it (goto=).
     """
     adjudications = state.get("adjudications") or []
-    substantiated = _substantiated(adjudications)
+    substantiated = _non_dismissed(adjudications)
 
     # Improper invoice (FAR 32.905) -> 7-day return, before any other lane.
     improper = state.get("item_type") == "invoice" and any(

@@ -21,7 +21,7 @@ import logging
 from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 
-from app.workflow import far_rules, llm, retrieve_client
+from app.workflow import far_rules, llm, prompt_guard, retrieve_client
 from app.workflow.state import WorkflowState
 
 log = logging.getLogger("ai-orchestrator.workflow.classify")
@@ -40,7 +40,7 @@ _CLASSIFY_SYSTEM = (
     "You classify post-award contract modifications under FAR 43.103. "
     "You classify only; you do not decide whether consent is required. "
     "Return ONLY a JSON object with keys block13_path, mod_type, far_basis, "
-    "confidence."
+    "confidence." + prompt_guard.DATA_GUARD
 )
 
 
@@ -71,10 +71,10 @@ def classify_modification_node(state: WorkflowState) -> dict:
     """
     change = state.get("change_request") or {}
     scope = str(change.get("scope", ""))
-    agency_id, user_id, role = retrieve_client.identity_for(state)
 
     # Ground the classifier in the real FAR text; keep clause ids for provenance.
     try:
+        agency_id, user_id, role = retrieve_client.identity_for(state)
         clauses = retrieve_client.retrieve(
             f"FAR 43.103 modification type for: {scope}",
             sf30_block="13",
@@ -93,11 +93,14 @@ def classify_modification_node(state: WorkflowState) -> dict:
     clause_text = "\n\n".join(c.get("chunk_text", "") for c in clauses)
 
     mod_types = " | ".join(far_rules.KNOWN_MOD_TYPES)
+    # Untrusted text (CO-typed change, corpus chunks) rides in data envelopes —
+    # never as bare prompt text (review finding 1).
     prompt = (
-        f"Change request: {change}\n"
-        f"FAR context:\n{clause_text}\n\n"
-        f"Classify. block13_path is one of 13A|13B|13C|13D|13E; mod_type is one "
-        f"of {mod_types}; far_basis like '43.103(a)'; confidence 0-1."
+        f"{prompt_guard.data_block('change_request', change)}\n"
+        f"{prompt_guard.data_block('far_context', clause_text)}\n\n"
+        f"Classify the change_request against the far_context. block13_path is "
+        f"one of 13A|13B|13C|13D|13E; mod_type is one of {mod_types}; far_basis "
+        f"like '43.103(a)'; confidence 0-1."
     )
 
     try:
