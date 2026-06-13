@@ -10,8 +10,11 @@ process.stdin.on('end', () => {
     // Safe suffixes that are explicitly allowed (.env.example, .env.sample, etc.)
     // Anchored with $ so .env.example2 / .env.test.local do not slip through.
     const SAFE = /\.env\.(example|sample|template|test)$/i;
-    // Matches .env not followed by a word char (avoids .environments, .envelopes, etc.)
-    const ENV_RE = /\.env(?![a-zA-Z0-9_])(\.[^\s"'|;&><]*)?/g;
+    // Matches the .env DOTFILE: not preceded by a word char (avoids member
+    // access like process.env.X / os.environ, and foo.env files — the secret
+    // file convention here is the bare dotfile) and not followed by a word
+    // char (avoids .environments, .envelopes, etc.).
+    const ENV_RE = /(?<![a-zA-Z0-9_])\.env(?![a-zA-Z0-9_])(\.[^\s"'|;&><]*)?/g;
 
     let blocked = false;
 
@@ -42,7 +45,9 @@ process.stdin.on('end', () => {
       // a directory can still surface .env lines in its results.
       const paths = [toolInput.file_path, toolInput.path].filter(Boolean).map(String);
       blocked = paths.some(
-        v => /[/\\]?\.env(?![a-zA-Z0-9_])(\.[^./\\]*)?$/.test(v) && !SAFE.test(v)
+        v =>
+          /(?<![a-zA-Z0-9_])\.env(?![a-zA-Z0-9_])(\.[^./\\]*)?$/.test(v) &&
+          !SAFE.test(v)
       );
     }
 
