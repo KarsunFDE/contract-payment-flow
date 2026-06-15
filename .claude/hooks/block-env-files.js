@@ -8,14 +8,27 @@ process.stdin.on('end', () => {
     const toolInput = input.tool_input || {};
 
     // Safe suffixes that are explicitly allowed (.env.example, .env.sample, etc.)
-    const SAFE = /\.env\.(example|sample|template|test)/i;
+    // Anchored with $ so .env.example2 / .env.test.local do not slip through.
+    const SAFE = /\.env\.(example|sample|template|test)$/i;
     // Matches .env not followed by a word char (avoids .environments, .envelopes, etc.)
     const ENV_RE = /\.env(?![a-zA-Z0-9_])(\.[^\s"'|;&><]*)?/g;
 
     let blocked = false;
 
     if (toolName === 'Bash' || toolName === 'PowerShell') {
-      const cmd = String(toolInput.command || '');
+      // Carve-out: strip quoted commit messages (-m/-am/--message; space or =
+      // form; single/double quotes; PowerShell @'...'@ / @"..."@ here-strings;
+      // multiline) so mentioning ".env" in a commit message is not blocked.
+      // Only these flags are stripped — other quoted strings (e.g.
+      // bash -c "cat .env") are still scanned. Interpolating forms (double
+      // quotes / @"..."@) are stripped ONLY when free of $ and backticks, so
+      // `git commit -m "$(cat .env)"` is still caught.
+      const FLAG = '(?:^|\\s)(?:--message|-am|-m)';
+      const cmd = String(toolInput.command || '')
+        .replace(new RegExp(FLAG + "\\s+@'[\\s\\S]*?'@", 'g'), ' ')
+        .replace(new RegExp(FLAG + '\\s+@"(?:(?!["$`])[\\s\\S])*"@', 'g'), ' ')
+        .replace(new RegExp(FLAG + "(?:\\s+|=)'[^']*'", 'g'), ' ')
+        .replace(new RegExp(FLAG + '(?:\\s+|=)"(?:(?!["$`])[\\s\\S])*"', 'g'), ' ');
       let m;
       while ((m = ENV_RE.exec(cmd)) !== null) {
         if (!SAFE.test(m[0])) {
@@ -25,6 +38,8 @@ process.stdin.on('end', () => {
       }
     } else {
       // Read, Write, Edit, Glob, Grep — check file path fields
+      // Known gap: only file_path/path are checked; a Grep content search over
+      // a directory can still surface .env lines in its results.
       const paths = [toolInput.file_path, toolInput.path].filter(Boolean).map(String);
       blocked = paths.some(
         v => /[/\\]?\.env(?![a-zA-Z0-9_])(\.[^./\\]*)?$/.test(v) && !SAFE.test(v)
@@ -45,6 +60,7 @@ process.stdin.on('end', () => {
     }
     process.exit(0);
   } catch {
+    // Deliberate fail-open: a hook crash on malformed input must not brick all tool use.
     process.exit(0);
   }
 });

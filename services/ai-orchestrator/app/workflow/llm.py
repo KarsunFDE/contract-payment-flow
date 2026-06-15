@@ -41,11 +41,23 @@ class JsonResult:
     """A validated JSON result plus provenance (model id + version) for the audit
     trail. `data` is an instance of the schema passed to `call_json`."""
 
-    def __init__(self, data: BaseModel, model: str, model_version: str, stub: bool):
+    def __init__(self, data: BaseModel, model: str, model_version: str):
         self.data = data
         self.model = model
         self.model_version = model_version
-        self.stub = stub
+
+
+def _strip_fences(text: str) -> str:
+    """Strip a markdown code fence (``` or ```json) wrapping the model output.
+
+    Claude often fences its JSON; json.loads chokes on the backticks. Unfenced
+    text is returned unchanged."""
+    stripped = text.strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        first_newline = stripped.find("\n")
+        if first_newline != -1:
+            return stripped[first_newline + 1 : -3].strip()
+    return text
 
 
 def model_version(model_id: str) -> str:
@@ -68,7 +80,7 @@ def call_json(
 ) -> JsonResult:
     """Invoke Claude via Bedrock, parse the body as JSON, validate against `schema`.
 
-    Returns a JsonResult(data=<schema instance>, model, model_version, stub=False).
+    Returns a JsonResult(data=<schema instance>, model, model_version).
     Raises LLMOutputError if the response is a stub or not schema-valid JSON.
     """
     answer = bedrock_client.invoke_model(
@@ -82,7 +94,7 @@ def call_json(
         )
 
     try:
-        payload = json.loads(answer["body"])
+        payload = json.loads(_strip_fences(answer["body"]))
         data = schema.model_validate(payload)
     except (json.JSONDecodeError, ValidationError) as exc:
         raise LLMOutputError(
@@ -90,6 +102,4 @@ def call_json(
         ) from exc
 
     model = answer.get("model", "")
-    return JsonResult(
-        data=data, model=model, model_version=model_version(model), stub=False
-    )
+    return JsonResult(data=data, model=model, model_version=model_version(model))

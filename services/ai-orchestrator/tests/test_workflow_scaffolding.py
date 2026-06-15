@@ -16,7 +16,7 @@ from app.workflow.state import WorkflowState
 from app.workflow.triage_state import TriageState
 from app.workflow.graph import build_graph
 from app.workflow.triage_graph import build_triage_graph
-from app.workflow.audit_events import WorkflowAuditRecord, WORKFLOW_EVENT_TYPES
+from app.workflow.audit_events import WorkflowAuditRecord, WORKFLOW_EVENT_TYPES, record_event
 from app.workflow.clients import SamGovClient, RetrieveClient  # noqa: F401
 from app.workflow import llm
 
@@ -74,6 +74,12 @@ def test_workflow_audit_record_fields():
     assert record.timestamp.tzinfo is not None
 
 
+def test_record_event_fails_closed_without_correlation_id():
+    """record_event raises before any DB write when correlation_id is absent (fail-closed)."""
+    with pytest.raises(ValueError):
+        record_event({}, "co_decision", {})
+
+
 def test_llm_call_json_is_stub_safe():
     """With no AWS creds, bedrock returns a stub; call_json fails closed, not crashes."""
 
@@ -88,6 +94,24 @@ def test_model_version_extraction():
     """Provenance helper pulls the version tag off a Bedrock model id."""
     assert llm.model_version("anthropic.claude-3-7-sonnet-20250219-v1:0") == "v1:0"
     assert llm.model_version("garbage") == "unknown"
+
+
+def test_llm_call_json_strips_markdown_fences(monkeypatch):
+    """call_json strips a ```json fence off the model body before json.loads."""
+
+    class _Demo(BaseModel):
+        verdict: str
+
+    def _fenced_response(prompt, **kwargs):
+        return {
+            "body": '```json\n{"verdict": "ok"}\n```',
+            "model": "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        }
+
+    monkeypatch.setattr(llm.bedrock_client, "invoke_model", _fenced_response)
+    result = llm.call_json("x", schema=_Demo)
+    assert result.data.verdict == "ok"
+    assert result.model_version == "v1:0"
 
 
 def test_workflow_router_mounted():

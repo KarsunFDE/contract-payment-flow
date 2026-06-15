@@ -29,6 +29,9 @@ def build_triage_graph() -> StateGraph:
     builder.add_node("return_route", nodes_triage.return_route_node)
 
     # The SF-30 workflow (Phases 0-6) runs as the HITL processing subgraph.
+    # Inner graph is compiled WITHOUT a checkpointer here. When Phase 4 (task A4) adds
+    # interrupt() in co_gate, the PARENT triage graph must be compiled with a checkpointer
+    # (LangGraph propagates it to compiled subgraphs) — A4 must verify that propagation.
     builder.add_node("hitl_escalate", build_graph().compile())
 
     builder.add_edge(START, "anomaly_detector")
