@@ -57,6 +57,8 @@ m3.md is the design; these are the points where it diverges from the real code/A
 
 10. **Cross-service prerequisites block real submit (A5 — flag, likely not 2-person scope).** ADR-0006 Integration Notes 2–5: the Java `ContractModificationController` defaults `X-User=anonymous` with no role check, audit is async (`recordAsync`), identity convention differs (`X-User` vs `X-Tenant-Id/...`), and `agencyId` is unenforced on the write path. A5 can build the `submit_node` + workflow audit, but **real FAR 43.102 CO-only enforcement + agency scoping live in the Java service** — a separate prerequisite. Build the node fail-closed; note the enforcement gap.
 
+11. **`TriageState` has no `invoice` field, but m3.md Step 7.1 reads `state["invoice"]` (B — resolved).** The frozen `triage_state.py` (Foundation Step 7.0) declares `item_type`/`idempotency_key`/`anomaly_flags`/`adjudications`/`lane`/`disposition_rationale` — no `invoice` channel, even though Step 7.1's detector reads the invoice payload for invoice-type items. **Resolution:** B's triage nodes read the payload via `state.get("invoice")` (and `state.get("change_request")` for mods) rather than `state["invoice"]`. This is safe because `TriageState(total=False)` is a `TypedDict` — not runtime-enforced — so the optional invoice payload flows through without touching the frozen contract. If a declared field is preferred, adding `invoice: dict` to `triage_state.py` is a one-line Foundation change (one PR, both review) — do **not** edit it inside a B task branch.
+
 ---
 
 ## Foundation phase (do FIRST — blocks both; one person or pair, both review)
@@ -149,4 +151,38 @@ Only hard constraints: **Foundation before anything**, **B5 integration last**.
 - **Java write-path debt** (ADR-0006 Notes 2–5): CO-identity + role check on `create/update/publish`, synchronous/transactional audit (replace `recordAsync`), one identity convention (B1), agency scoping. Blocks *real* approve→submit. (debt Items 2, 10 + B1)
 - **REQ-AGT-5** relational lineage → W03-SA-3 Postgres recursive-CTE KG (separate deliverable).
 - **LangFuse** (ADR-0005 §7) deferred to its own phase; M3 uses structured `workflow_audit` + `correlation_id`.
-- **debt Items 4 & 5** stay locked — M3 must not "fix" them incidentally without `debt-touch-approved`.
+- **debt Items 4 & 5** stay locked until the closures below — M3 must not "fix" them incidentally without `debt-touch-approved`.
+
+---
+
+## Brownfield debt M3 is responsible for retiring
+
+Audit (2026-06-13) verified all 17 debt items against the code. Only **Item 7** (pinecone) is fixed. Of the rest, four are **M3's lane** by schedule (W2–W3) + by ADR-0006 — the agent we build *is* their modernization. The W4–W5 items (1, 3, 8, 9, 11, 12, PU1, PU2, PU3, PU4, PU5) are **out of scope** here: different weeks/services, and premature fixes trip CI `debt-enforcement.yml` + break assessment parity.
+
+**Process for every closure below (non-negotiable):** make the locked test pass → flip `docs/debt-lockfile.yml` `locked: true → false` → apply the `debt-touch-approved` label. Closing without the label fails CI.
+
+### D1 — Item 5: delete `legacy_chain.py` (W2 anchor; **primary, blocks the "agent = v1.0 migration" story**)
+- **Why now:** PRD §11 sequences the multi-agent build *after* the Item-5 v1.0 migration. Our LangGraph agent (Phase 0+) is that v1.0 replacement; `legacy_chain` is already dead (imported at `main.py:58`, never invoked).
+- **Do:** delete `app/legacy_chain.py`; remove `from app import legacy_chain` in `main.py`; grep-confirm no `LLMChain` string remains under `app/`.
+- **Verifies:** `tests/test_legacy_chain_debt.py` (file deleted + zero `LLMChain` refs) flips to passing.
+- **Owner/timing:** Person B, alongside B2 (the real `draft_node` lands → legacy drafting is provably superseded). Smallest, highest-signal closure.
+
+### D2 — Item 4: structured-output validation on the AI draft path (W1-Fri/W2 theme)
+- **Why now:** `app/workflow/llm.py:call_json` already implements the fix pattern (Pydantic-validated output) — it's just unwired to the debt endpoints, which still return raw dicts (`main.py:145-193`, 1-in-3 null `clause_id`).
+- **Do:** give the M3 draft path a Pydantic `DraftResponse` (B2's `draft_node` / `classify` via `call_json`); then either add the `response_model` to `/draft-contract-modification` (+ the 4 sibling endpoints) **or** retire them in favor of the workflow surface.
+- **Verifies:** `tests/test_structured_output_debt.py` flips (asserts a `BaseModel` `response_model`). **Caveat:** the locked test targets the `main.py` endpoints, not `workflow/`, so wiring `llm.py` alone won't flip it — the endpoints must change.
+- **Owner/timing:** Person B, after B1/B2. Coordinate with the debt label.
+
+### D3 — Item 2: synchronous/transactional audit (Java; ADR-0006 Note 3 — **submit prerequisite**)
+- **Why now:** M3's `submit_node`/`co_decision`/`supersede` events must be fail-closed (our `workflow/audit_events.py` already is). The Java `AuditLogger.recordAsync` (`AuditLogger.java:53`) drops rows on crash — the real blocker for approve→submit going live.
+- **Do (Java side, outside the 2-person ai-orchestrator scope):** move the audit write inside the CRUD `@Transactional` boundary (or outbox); replace `recordAsync` on the submit/decision/supersede paths.
+- **Verifies:** `AuditLogRaceDebtTest` flips.
+- **Owner/timing:** cross-service prerequisite; schedule before approve→submit (A5) is declared production-real.
+
+### D4 — Item 10: agency scoping on the write/list path (Java; ADR-0006 Note 5 — **submit prerequisite**)
+- **Why now:** M3's `lookup_node`/retrieval enforce agency scope on the AI side, but the Java `listAll()→findAll()` (`ContractModificationService.java:82`) ignores tenant. The fix method `findByAgencyId` already exists but is **dead** — wire it.
+- **Do (Java side):** route list/read through `findByAgencyId`, tenant from the gateway-asserted JWT identity.
+- **Verifies:** `MultiTenantBoundaryDebtTest` flips.
+- **Owner/timing:** cross-service prerequisite, same gate as D3.
+
+> **Not M3's job (leave locked, fix in their week):** Items 1, 3, 6, 8, 9, 11, 12, PU1–PU5. Item 6 (`correlation_id`) is *partially* advanced — M3 threads `correlation_id` through state + `workflow_audit` internally, but full cross-service W3C `traceparent` is the W5 OTel deliverable; do not flip Item 6 on the strength of M3 alone.

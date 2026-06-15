@@ -117,10 +117,6 @@ services:
     # external traffic through the gateway: /api/ai/** → ai-orchestrator.
     expose:
       - "8000"
-    environment:
-      AWS_REGION: us-east-1
-      BEDROCK_MODEL_ID: anthropic.claude-3-7-sonnet-20250219-v1:0
-      MONGO_URL: mongodb://app:app_dev_password@mongodb:27017
     volumes:
       - ../../data:/app/data
     depends_on:

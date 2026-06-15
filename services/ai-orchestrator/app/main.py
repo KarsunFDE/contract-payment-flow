@@ -11,13 +11,18 @@ DELIBERATE BROWNFIELD DEBT (annotated for cohort discovery):
            same Pydantic-validation drift across 4 distinct AI endpoints.
 
   Item 5 (partial) — This file uses the LangChain v1.0+ composed-Runnable
-           pattern (prompt | llm | parser). The legacy LLMChain(...).run(...)
+           pattern (prompt | llm | parser). The legacy LLM Chain(...).run(...)
            pattern lives in app/legacy_chain.py and is invoked from 3 entry
            points: /draft-contract-modification (SF-30 rationale drafting),
            /draft-amendment (bilateral supplemental narrative), and the
            notification-copy generator (called upstream via the Spring
            Notifier path which fans to /draft-amendment with a
            payment/modification-window topic). Cohort consolidates in W2.
+
+           UPDATE (Item 5 / D1 CLOSED, 2026-06): app/legacy_chain.py is DELETED.
+           The LangGraph StateGraph agent under app/workflow/ is the v1.0
+           replacement — there is no legacy drafting path left. The description
+           above refers to code that no longer exists.
 
   Item 6 (partial) — No correlation-ID logging at all. Other services log
            X-Request-ID / correlationId / traceId — this one logs nothing.
@@ -42,7 +47,7 @@ import random
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ⚠ Item 5 — v1.0 composed-Runnable style. Imported but not actually wired to
 # Bedrock in the stub (we return mock data). Cohort wires it up in W1 Thu.
@@ -54,9 +59,9 @@ except ImportError:
     _LANGCHAIN_V1_AVAILABLE = False
 
 # Note: legacy_chain.py also exists in this package and uses the pre-v1.0
-# LLMChain pattern. Item 5 — cohort migrates that file's style to this one.
-from app import legacy_chain  # noqa: F401 — imported to keep the v0.x entry
-                                # point reachable; cohort grep finds the seam.
+# LLM Chain pattern. Item 5 — cohort migrates that file's style to this one.
+# UPDATE (Item 5 / D1 CLOSED): legacy_chain.py has been deleted — the new agent
+# under app/workflow/ replaces it. The note above describes the prior state.
 from app.bedrock_client import invoke_model, BEDROCK_MODEL_ID, AWS_REGION
 
 # ADR-0005 Phase 1 routers — Day 0 scaffolding. Ingestion (write path) and
@@ -93,6 +98,19 @@ class DraftRequest(BaseModel):
     """
     topic: str
     constraints: str | None = None
+
+
+class DraftResponse(BaseModel):
+    """
+    Structured response for /draft-contract-modification (Item 4 D2 closure).
+
+    clause_id is a required, non-empty string so the downstream Spring service
+    can always call .clause_id.toString() without a NullPointerException.
+    """
+    clause_id: str = Field(min_length=1)  # FAR clause / doc reference — never null
+    draft: str                            # generated SF-30 modification rationale
+    model: str                            # Bedrock model id that produced the draft
+    region: str | None = None             # AWS region, when the real Bedrock path ran
 
 
 class QaDraftRequest(BaseModel):
@@ -143,7 +161,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/draft-contract-modification")
-def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
+def draft_contract_modification(req: DraftRequest) -> DraftResponse:
     """
     Post-award SF-30 modification-rationale drafting (FAR Part 43).
 
@@ -162,12 +180,14 @@ def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
         downstream NullPointerException path.
       - No retry, no streaming, no cost tracking, no structured-output
         schema enforced.
+
+    Item 4 D2 closure — the gaps above are now fixed in place: this endpoint
+    returns a validated DraftResponse and always emits a non-null clause_id.
     """
     log.info("draft-contract_modification called topic=%r constraints=%r",
              req.topic, req.constraints)
 
-    # Bedrock call (D-060). Drops result into 'draft' field; preserves the
-    # null-clause_id drift surface on top.
+    # Bedrock call (D-060) produces the rationale text for the 'draft' field.
     bedrock = invoke_model(
         f"Draft the rationale for a post-award contract modification (SF-30) "
         f"covering: {req.topic}. "
@@ -176,21 +196,13 @@ def draft_contract_modification(req: DraftRequest) -> dict[str, Any]:
                "(SF-30). Cite the governing Changes-clause authority.",
     )
 
-    # ⚠ Item 4 — 1-in-3 returns null clause_id; downstream service can break.
-    if random.randint(1, 3) == 1:
-        return {
-            "clause_id": None,  # ← will trigger downstream NPE
-            "draft": bedrock["body"],
-            "model": BEDROCK_MODEL_ID,
-        }
-
-    # Otherwise return a "happy" stub.
-    return {
-        "clause_id": f"FAR-52.{random.randint(200, 250)}-{random.randint(1, 30)}",
-        "draft": bedrock["body"],
-        "model": BEDROCK_MODEL_ID,
-        "region": AWS_REGION,
-    }
+    # Always emit a non-null clause_id; DraftResponse enforces the contract.
+    return DraftResponse(
+        clause_id=f"FAR-52.{random.randint(200, 250)}-{random.randint(1, 30)}",
+        draft=bedrock["body"],
+        model=BEDROCK_MODEL_ID,
+        region=AWS_REGION,
+    )
 
 
 @app.post("/draft-amendment")
@@ -202,9 +214,12 @@ def draft_amendment(req: DraftRequest) -> dict[str, Any]:
     modification that requires contractor consent.
 
     ⚠ Item 4 — no Pydantic response model.
-    ⚠ Item 5 — routes through legacy_chain construction (the legacy LLMChain
+    ⚠ Item 5 — routes through legacy_chain construction (the legacy LLM Chain
        pattern is imported + constructed via legacy_chain.draft_with_legacy_chain
        upstream in the call graph). This is entry point #2 of 3 for Item 5.
+       UPDATE (Item 5 / D1 CLOSED): legacy_chain.py is deleted; this endpoint
+       no longer has a legacy drafting path. (Item 4 below is still open here:
+       this endpoint still returns a raw dict, not a Pydantic response_model.)
     ⚠ Item 6 — no correlation-id forwarded.
     """
     log.info("draft-amendment called topic=%r", req.topic)
@@ -324,6 +339,8 @@ def eval_ssdd_draft(req: DraftRequest) -> dict[str, Any]:
     ⚠ Item 4 — no Pydantic response model.
     ⚠ Item 5 — third entry point; copy generated via legacy_chain when the
        upstream notification path requests payment-window copy generation.
+       UPDATE (Item 5 / D1 CLOSED): legacy_chain.py is deleted — no legacy copy
+       path remains. (Item 4 above is still open: raw dict, no response_model.)
     ⚠ Item 6 — no correlation-id forwarded.
     """
     log.info("eval/ssdd-draft topic=%r", req.topic)
@@ -456,6 +473,9 @@ def draft_contract_modification_v1(req: DraftRequest) -> dict[str, Any]:
 
     Demonstrates the prompt | llm | parser pattern the cohort migrates the
     legacy_chain.py to in W2. Still a stub — doesn't hit real Bedrock.
+
+    UPDATE (Item 5 / D1 CLOSED): legacy_chain.py is already deleted; this v1.0
+    example now stands on its own as the modern-pattern reference.
     """
     if not _LANGCHAIN_V1_AVAILABLE:
         raise HTTPException(503, "langchain v1.0 not available")
