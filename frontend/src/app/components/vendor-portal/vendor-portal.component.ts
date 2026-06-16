@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { RoleService } from '../../services/role.service';
+import { Proposal } from '../../models/proposal';
 import { FIXTURE_PROPOSALS, FIXTURE_AMENDMENTS, FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
 
 /**
@@ -70,7 +71,20 @@ export class VendorPortalComponent {
     return this.amendmentCount(p.contractModificationId) > p.amendmentAcks.length;
   }
 
-  ack(p: any): void {
-    p.amendmentAcks = [...p.amendmentAcks, p.amendmentAcks.length + 1];
+  ack(p: Proposal): void {
+    // The next sequential amendment this vendor is acknowledging.
+    const amendmentNumber = p.amendmentAcks.length + 1;
+
+    // Optimistic UI — proposal-level count (this vendor's portal view).
+    p.amendmentAcks = [...p.amendmentAcks, amendmentNumber];
+
+    // #2 — sync the amendment-level record so the CO's amendment-editor
+    // (reads acknowledgedBy) reflects the same consent within the session.
+    const amd = FIXTURE_AMENDMENTS.find(
+      (a) => a.contractModificationId === p.contractModificationId && a.number === amendmentNumber,
+    );
+    if (amd && !amd.acknowledgedBy.includes(p.vendorId)) {
+      amd.acknowledgedBy = [...amd.acknowledgedBy, p.vendorId];
+    }
   }
 }

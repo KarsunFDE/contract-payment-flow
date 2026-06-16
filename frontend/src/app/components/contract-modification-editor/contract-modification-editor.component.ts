@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ContractModification } from '../../models/contract-modification';
 import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
+import { AiService } from '../../services/ai.service';
 
 /**
  * Pre-publication editor for a draft ContractModification.
@@ -56,8 +57,11 @@ import { FIXTURE_CONTRACT_MODIFICATIONS } from '../../services/mock-fixtures';
             Hybrid lexical + Atlas Vector Search over FAR/DFARS.
             <em>Filtered by agency_id — Item 10 surface.</em>
           </p>
-          <input [(ngModel)]="clauseQuery" (keyup.enter)="searchClauses()" placeholder="e.g., 52.212-4 commercial items"/>
-          <button (click)="searchClauses()" style="margin-top:0.5rem">Search</button>
+          <input [(ngModel)]="clauseQuery" (keyup.enter)="searchClauses()" placeholder="e.g., bilateral supplemental agreement consent"/>
+          <button (click)="searchClauses()" style="margin-top:0.5rem" [disabled]="searching">
+            {{ searching ? 'Searching…' : 'Search' }}
+          </button>
+          <p *ngIf="searchInfo" style="font-size:0.75rem;color:var(--color-fg-muted);margin-top:0.4rem">{{ searchInfo }}</p>
           <ul *ngIf="clauseResults.length > 0">
             <li *ngFor="let c of clauseResults">
               <strong>{{ c.id }}</strong> — {{ c.title }}
@@ -93,8 +97,10 @@ export class ContractModificationEditorComponent implements OnInit {
   clauseQuery = '';
   clauseResults: { id: string; title: string }[] = [];
   targetState = 'INTERNAL_REVIEW';
+  searching = false;
+  searchInfo = '';
 
-  constructor(private route: ActivatedRoute) {}
+  constructor(private route: ActivatedRoute, private ai: AiService) {}
 
   ngOnInit(): void {
     this.id = this.route.snapshot.params['id'];
@@ -106,12 +112,35 @@ export class ContractModificationEditorComponent implements OnInit {
   }
 
   searchClauses(): void {
-    // Stub — in W2, hits POST /rag/clause-search.
-    const q = this.clauseQuery.toLowerCase();
-    this.clauseResults = [
-      { id: '52.212-4', title: 'Contract Terms and Conditions—Commercial Items' },
-      { id: '52.204-21', title: 'Basic Safeguarding of Covered Contractor Information Systems' },
-      { id: '52.219-14', title: 'Limitations on Subcontracting' },
-    ].filter((c) => !q || c.id.includes(q) || c.title.toLowerCase().includes(q));
+    const q = this.clauseQuery.trim();
+    if (!q) return;
+    this.searching = true;
+    this.searchInfo = '';
+    // Real hybrid RAG over the FAR/DFARS corpus in ai-orchestrator.
+    this.ai.clauseSearch(q).subscribe({
+      next: (res) => {
+        // Dedup by clause id — a clause split into multiple chunks would otherwise
+        // appear several times (chunks are ranked, so the first kept = highest score).
+        const seen = new Set<string>();
+        this.clauseResults = res.chunks
+          .map((c) => ({
+            id: c.source_document?.clause_number || c.source_document?.far_part || c.chunk_id,
+            title: c.source_document?.title || c.chunk_text.slice(0, 90) + '…',
+          }))
+          .filter((c) => (seen.has(c.id) ? false : seen.add(c.id)));
+        this.searchInfo = `${this.clauseResults.length} clause(s) · ${res.retrieval_strategy} · ${res.latency_ms} ms`
+          + (res.degraded ? ' · degraded' : '');
+        this.searching = false;
+      },
+      error: () => {
+        // Fallback so the panel still demonstrates if retrieval is unavailable.
+        this.clauseResults = [
+          { id: '52.212-4', title: 'Contract Terms and Conditions—Commercial Items' },
+          { id: '43.103', title: 'Types of contract modifications (bilateral / unilateral)' },
+        ];
+        this.searchInfo = 'sample results (retrieval service unreachable)';
+        this.searching = false;
+      },
+    });
   }
 }

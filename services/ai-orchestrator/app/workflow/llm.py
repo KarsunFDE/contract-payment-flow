@@ -39,12 +39,18 @@ class LLMOutputError(ValueError):
 
 class JsonResult:
     """A validated JSON result plus provenance (model id + version) for the audit
-    trail. `data` is an instance of the schema passed to `call_json`."""
+    trail. `data` is an instance of the schema passed to `call_json`.
 
-    def __init__(self, data: BaseModel, model: str, model_version: str):
+    `stub` records whether the underlying Bedrock response was a credentials-absent
+    stub. `call_json` fails closed on a stub, so a real result carries stub=False;
+    the flag is provenance callers and tests can inspect."""
+
+    def __init__(self, data: BaseModel, model: str, model_version: str,
+                 stub: bool = False):
         self.data = data
         self.model = model
         self.model_version = model_version
+        self.stub = stub
 
 
 def _strip_fences(text: str) -> str:
@@ -102,4 +108,5 @@ def call_json(
         ) from exc
 
     model = answer.get("model", "")
-    return JsonResult(data=data, model=model, model_version=model_version(model))
+    return JsonResult(data=data, model=model, model_version=model_version(model),
+                      stub=bool(answer.get("stub", False)))

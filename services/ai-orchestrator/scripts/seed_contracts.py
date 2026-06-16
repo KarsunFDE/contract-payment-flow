@@ -40,6 +40,8 @@ _SEED_CONTRACTS: list[dict] = [
             "10A": "GS-35F-0001V",           # contract/order no. being modified
             "10B": "2024-01-10",             # dated
             "12": "Appropriation 47X0535.202601",  # accounting & appropriation data
+            "popStart": "2024-01-10",        # original period of performance (base)
+            "popEnd": "2026-06-30",          # original PoP end (pre-modification)
         },
         "source_citation": {
             "system": "SAM.gov",             # live source later; mock-backed now
@@ -60,6 +62,8 @@ _SEED_CONTRACTS: list[dict] = [
             "10A": "W912DY-24-C-0042",
             "10B": "2024-03-22",
             "12": "Appropriation 96X3121.202607",
+            "popStart": "2024-03-22",        # original period of performance (base)
+            "popEnd": "2026-06-30",          # original PoP end (pre-modification)
         },
         "source_citation": {
             "system": "SAM.gov",

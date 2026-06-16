@@ -60,6 +60,10 @@ services:
       - "8080:8080"
     environment:
       JWT_ISSUER_URI: http://localhost:8090/auth
+      # DEV-ONLY: no OIDC issuer runs in this stack, so permit the SPA's data
+      # routes through the gateway + enable CORS for localhost:4200. Prod leaves
+      # this unset/false and keeps anyExchange().authenticated().
+      GATEWAY_DEV_NO_AUTH: "true"
       CONTRACT_MODIFICATION_SERVICE_URL: http://contract-modification-service:8081
       INVOICE_REVIEW_SERVICE_URL: http://invoice-review-service:8082
       AI_ORCHESTRATOR_URL: http://ai-orchestrator:8000
@@ -103,6 +107,11 @@ services:
   ai-orchestrator:
     build:
       context: ../../services/ai-orchestrator
+    environment:
+      MONGO_URL: mongodb://app:app_dev_password@mongodb:27017
+      # Pinned to the post-rename DB (matches contract-modification-service).
+      # Overrides the stale MONGO_DB in the repo-root .env loaded below.
+      MONGO_DB: contract_payment_flow
     # Loads the ENTIRE repo-root .env into this container — broader than the
     # single AWS_BEARER_TOKEN_BEDROCK it replaces. Acceptable for the dev stack;
     # least-privilege (per-service env files) is the production posture.
@@ -117,6 +126,12 @@ services:
     # external traffic through the gateway: /api/ai/** → ai-orchestrator.
     expose:
       - "8000"
+    # DEV-ONLY: published to the host so the Angular app can call the AI-draft +
+    # retrieval endpoints directly (no dev auth server exists for the gateway path).
+    # CORS is restricted to the local frontend origin in app/main.py. Remove this
+    # publish in any shared/prod environment — see security review finding 1.
+    ports:
+      - "8000:8000"
     volumes:
       - ../../data:/app/data
     depends_on:

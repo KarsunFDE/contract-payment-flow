@@ -87,7 +87,7 @@ items:
 
   - id: 8
     name: frontend-hardcoded-service-url
-    locked: true
+    locked: false   # UNLOCKED early (instructor-approved) — fixed for the demo; needs `debt-touch-approved` label on the PR
     scheduled_unlock_week: W4-Tue
     teaching_anchor: API-modernization-patterns
     test_marker: brownfield_debt_8

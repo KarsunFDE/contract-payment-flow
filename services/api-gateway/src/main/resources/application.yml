@@ -12,6 +12,12 @@ spring:
           # production OIDC issuer. The JWKS is fetched from $JWT_ISSUER_URI/.well-known/jwks.json
           issuer-uri: ${JWT_ISSUER_URI:http://localhost:8090/auth}
 
+# DEV-ONLY: when true, the gateway permits the SPA's data routes + enables CORS
+# for the local Angular origin, because the local stack runs no OIDC issuer.
+# Defaults false → production requires a verified JWT (anyExchange().authenticated()).
+gateway:
+  dev-no-auth: ${GATEWAY_DEV_NO_AUTH:false}
+
 management:
   endpoints:
     web:

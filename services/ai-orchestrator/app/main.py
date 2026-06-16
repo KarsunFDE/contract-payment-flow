@@ -47,6 +47,7 @@ import random
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # ⚠ Item 5 — v1.0 composed-Runnable style. Imported but not actually wired to
@@ -63,6 +64,7 @@ except ImportError:
 # UPDATE (Item 5 / D1 CLOSED): legacy_chain.py has been deleted — the new agent
 # under app/workflow/ replaces it. The note above describes the prior state.
 from app.bedrock_client import invoke_model, BEDROCK_MODEL_ID, AWS_REGION
+from app import llm_chain
 
 # ADR-0005 Phase 1 routers — Day 0 scaffolding. Ingestion (write path) and
 # retrieval (read path) are owned separately; this file stays frozen so the
@@ -82,6 +84,18 @@ logging.basicConfig(
 log = logging.getLogger("ai-orchestrator")
 
 app = FastAPI(title="ai-orchestrator", version="0.1.0-brownfield")
+
+# DEV-ONLY: the Angular app (http://localhost:4200) calls the AI-draft + retrieval
+# endpoints directly on the published 8000 port (bypassing the gateway, which has no
+# dev auth server). CORS is opened to the local frontend origins so the browser
+# pre-flight succeeds. In production these calls route through the gateway and this
+# middleware is not needed.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200", "http://localhost"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Tenant-Id", "X-User-Id", "X-User-Role"],
+)
 
 # ADR-0005 Phase 1 — both routers registered Day 0 so neither owner edits
 # main.py again this week.
@@ -464,6 +478,104 @@ def agent_intake_triage(req: IntakeTriageRequest) -> dict[str, Any]:
         "hitl_gate": "co-review-on-escalation",
         "model": BEDROCK_MODEL_ID,
     }
+
+
+class DraftSectionRequest(BaseModel):
+    """AI-draft request for an SF-30 wizard section (rationale or price/cost)."""
+    kind: str = Field(description='"rationale" | "price_cost"')
+    title: str | None = None
+    contract_number: str | None = None
+    mod_type: str | None = None
+    far_authority: str | None = None
+    funding_delta: float | None = None
+    pop_changed: bool | None = None
+    pop_original_start: str | None = None  # contract-of-record base PoP
+    pop_original_end: str | None = None
+    pop_revised_start: str | None = None   # CO-entered revised PoP (this mod)
+    pop_revised_end: str | None = None
+    constraints: str | None = None
+
+
+class DraftSectionResponse(BaseModel):
+    """Drafted text + provenance the UI surfaces to the reviewer."""
+    draft: str
+    model: str
+    traced: bool   # LangSmith tracing active for this call
+    stub: bool     # True when the model was unreachable and a stub was returned
+
+
+_DRAFT_SYSTEM = {
+    "rationale": (
+        "You draft the change rationale for a post-award contract modification "
+        "(SF-30, FAR Part 43). Cite the governing Changes-clause authority and "
+        "describe the scope/funding/PoP impact. Be concise and review-ready."
+    ),
+    "price_cost": (
+        "You draft the price/cost-impact analysis for a post-award contract "
+        "modification (SF-30) under FAR 43.204. State the proposed equitable "
+        "adjustment, basis of estimate, and whether DCAA / certified cost-or-pricing "
+        "data applies. Be concise and review-ready."
+    ),
+}
+
+_DRAFT_HUMAN = (
+    "Modification: {title}\nContract: {contract_number}\nType: {mod_type}\n"
+    "FAR authority: {far_authority}\nNet funding delta (USD): {funding_delta}\n"
+    "Period of performance changed: {pop_changed}\n"
+    "Original PoP: {pop_original_start} to {pop_original_end}\n"
+    "Revised PoP: {pop_revised_start} to {pop_revised_end}\n"
+    "MANDATORY: include a 'Period of Performance' section that states the Original "
+    "PoP and the Revised PoP as explicit date ranges using the EXACT dates above "
+    "in YYYY-MM-DD to YYYY-MM-DD form. Never paraphrase them as a duration "
+    "(e.g. 'twelve-month period') and never emit bracketed placeholders. If a date "
+    "value is '(not on record)' or '(unchanged)', state that literally instead.\n"
+    "Constraints: {constraints}\n\n"
+    "Draft the {kind_label} now."
+)
+
+
+@app.post("/draft-section", response_model=DraftSectionResponse)
+def draft_section(req: DraftSectionRequest) -> DraftSectionResponse:
+    """AI-draft an SF-30 wizard section via a LangChain Runnable (LangSmith-traced).
+
+    Used by the Angular wizard's "AI-draft" buttons. Routes through
+    app.llm_chain (prompt | ChatBedrock | parser) so the call is traced
+    automatically when LangSmith env is set; falls back to a deterministic stub if
+    Bedrock credentials are unavailable.
+    """
+    kind = req.kind if req.kind in _DRAFT_SYSTEM else "rationale"
+    log.info("draft-section kind=%s contract=%r", kind, req.contract_number)
+
+    variables = {
+        "title": req.title or "(untitled modification)",
+        "contract_number": req.contract_number or "(contract #)",
+        "mod_type": req.mod_type or "(type)",
+        "far_authority": req.far_authority or "the Changes clause",
+        "funding_delta": req.funding_delta if req.funding_delta is not None else "0",
+        "pop_changed": "yes" if req.pop_changed else "no",
+        "pop_original_start": req.pop_original_start or "(not on record)",
+        "pop_original_end": req.pop_original_end or "(not on record)",
+        "pop_revised_start": req.pop_revised_start or "(unchanged)",
+        "pop_revised_end": req.pop_revised_end or "(unchanged)",
+        "constraints": req.constraints or "none",
+        "kind_label": "change rationale" if kind == "rationale" else "price/cost-impact analysis",
+    }
+
+    try:
+        text = llm_chain.draft(_DRAFT_SYSTEM[kind], _DRAFT_HUMAN, variables)
+        return DraftSectionResponse(
+            draft=text, model=BEDROCK_MODEL_ID,
+            traced=llm_chain.tracing_active(), stub=False,
+        )
+    except llm_chain.LLMUnavailable as exc:
+        log.warning("draft-section falling back to stub: %s", exc)
+        stub = invoke_model(
+            f"Draft the {variables['kind_label']} for: {variables['title']} "
+            f"on contract {variables['contract_number']}.",
+        )
+        return DraftSectionResponse(
+            draft=stub["body"], model=BEDROCK_MODEL_ID, traced=False, stub=True,
+        )
 
 
 @app.post("/draft-contract-modification-v1")
