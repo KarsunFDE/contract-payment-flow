@@ -47,7 +47,7 @@ items:
 
   - id: 4
     name: no-structured-output-validation
-    locked: true
+    locked: false
     scheduled_unlock_week: W1-Fri
     teaching_anchor: LLM-Essentials-Day-2-output-validation
     test_marker: brownfield_debt_4
@@ -57,7 +57,7 @@ items:
 
   - id: 5
     name: pre-v1-langchain-patterns
-    locked: true
+    locked: false
     scheduled_unlock_week: W2-Mon
     teaching_anchor: RAG-Architecture-week-anchor
     test_marker: brownfield_debt_5
@@ -87,7 +87,7 @@ items:
 
   - id: 8
     name: frontend-hardcoded-service-url
-    locked: true
+    locked: false   # UNLOCKED early (instructor-approved) — fixed for the demo; needs `debt-touch-approved` label on the PR
     scheduled_unlock_week: W4-Tue
     teaching_anchor: API-modernization-patterns
     test_marker: brownfield_debt_8

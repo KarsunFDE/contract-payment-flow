@@ -21,7 +21,7 @@ import os
 
 # --- MongoDB (Atlas Local) ---
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-MONGO_DB = os.environ.get("MONGO_DB", "acquire_gov")
+MONGO_DB = os.environ.get("MONGO_DB", "contract_payment_flow")
 
 # Collections
 FAR_CORPUS_COLLECTION = os.environ.get("FAR_CORPUS_COLLECTION", "far_corpus")

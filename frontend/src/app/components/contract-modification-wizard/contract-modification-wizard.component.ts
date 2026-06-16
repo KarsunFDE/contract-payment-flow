@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ContractModificationService } from '../../services/contract-modification.service';
+import { AiService, ContractLookupResponse } from '../../services/ai.service';
 import { ContractModification, ContractModificationCreate, ContractModificationSections } from '../../models/contract-modification';
 
 /**
@@ -48,10 +49,12 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
       </label>
       <div class="two-col">
         <label><span class="label-text">Agency ID</span>
-          <input name="agencyId" [(ngModel)]="model.agencyId" placeholder="GSA-FAS"/>
+          <input name="agencyId" [(ngModel)]="model.agencyId" placeholder="agency-gsa"/>
         </label>
         <label><span class="label-text">Base contract #</span>
-          <input name="contractNumber" [(ngModel)]="model.contractNumber" placeholder="GS-35F-0001V"/>
+          <input name="contractNumber" [(ngModel)]="model.contractNumber"
+                 placeholder="GS-35F-0001V" (blur)="onContractBlur()"/>
+          <span *ngIf="lookupNote" style="font-size:0.78rem;color:var(--color-fg-muted)">{{ lookupNote }}</span>
         </label>
         <label><span class="label-text">Modification # (SF-30)</span>
           <input name="modificationNumber" [(ngModel)]="model.modificationNumber" placeholder="P00003 / A00002"/>
@@ -106,7 +109,12 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
         ⚠ Debt Item 4 (no Pydantic schema), Item 5 (legacy LLMChain.run wired here),
         Item 9 (rationale stored raw).
       </p>
-      <button class="secondary" (click)="aiDraft('changeNarrative')">▦ AI-draft rationale</button>
+      <button class="secondary" (click)="aiDraft('changeNarrative')" [disabled]="drafting === 'changeNarrative'">
+        {{ drafting === 'changeNarrative' ? '▦ Drafting…' : '▦ AI-draft rationale' }}
+      </button>
+      <span *ngIf="draftProvenance.changeNarrative" style="margin-left:0.5rem;font-size:0.8rem;color:var(--color-fg-muted)">
+        {{ draftProvenance.changeNarrative }}
+      </span>
       <textarea name="changeNarrative" rows="9" [(ngModel)]="sections.changeNarrative"
                 style="margin-top:0.5rem"
                 placeholder="Why is this modification needed? Cite the Changes-clause authority and describe the scope/funding/PoP impact."></textarea>
@@ -119,7 +127,12 @@ import { ContractModification, ContractModificationCreate, ContractModificationS
         FAR 43.204 — document the price/cost impact and the funding citation
         (line of accounting) supporting the obligation change.
       </p>
-      <button class="secondary" (click)="aiDraft('priceCostImpact')">▦ AI-draft price/cost impact</button>
+      <button class="secondary" (click)="aiDraft('priceCostImpact')" [disabled]="drafting === 'priceCostImpact'">
+        {{ drafting === 'priceCostImpact' ? '▦ Drafting…' : '▦ AI-draft price/cost impact' }}
+      </button>
+      <span *ngIf="draftProvenance.priceCostImpact" style="margin-left:0.5rem;font-size:0.8rem;color:var(--color-fg-muted)">
+        {{ draftProvenance.priceCostImpact }}
+      </span>
       <textarea name="priceCostImpact" rows="6" [(ngModel)]="sections.priceCostImpact"
                 style="margin-top:0.5rem"></textarea>
       <label style="margin-top:0.75rem"><span class="label-text">Funding citation</span>
@@ -167,25 +180,84 @@ export class ContractModificationWizardComponent {
   error: string | null = null;
 
   model: ContractModificationCreate = {
-    agencyId: 'GSA-FAS',
+    agencyId: 'agency-gsa',
     title: '',
     description: '',
     status: 'MODIFICATION_REQUEST',
     contractNumber: '',
     modificationNumber: '',
     modType: 'bilateral_supplemental',
-    farAuthority: '',
+    // Matches the default modType above; onModTypeChange keeps it in sync thereafter.
+    farAuthority: 'FAR 43.103(a) — Supplemental Agreement',
     fundingDelta: undefined,
     contractorConsentRequired: true,
   };
 
   sections: ContractModificationSections = {};
 
-  constructor(private svc: ContractModificationService, private router: Router) {}
+  /** Which section is currently being AI-drafted (drives the button spinner). */
+  drafting: 'changeNarrative' | 'priceCostImpact' | null = null;
+  /** Provenance line shown next to each draft button (model + traced/stub). */
+  draftProvenance: { changeNarrative?: string; priceCostImpact?: string } = {};
+  /** Status line under the contract # field after a contract-of-record lookup. */
+  lookupNote: string | null = null;
+  /** Original (base) PoP from the contract-of-record lookup; feeds the AI draft. */
+  popOriginalStart?: string;
+  popOriginalEnd?: string;
+
+  constructor(
+    private svc: ContractModificationService,
+    private ai: AiService,
+    private router: Router,
+  ) {}
+
+  /**
+   * Deterministic contract-of-record lookup (no LLM). On a "found" match, autofills
+   * the SF-30 blocks the contract supplies — next mod # (block 2), effective date
+   * (block 3), appropriation/funding citation (block 12). The CO can still override
+   * any field. Tenant-scoped by agencyId, so the agency must match the seeded record.
+   */
+  onContractBlur(): void {
+    const number = (this.model.contractNumber || '').trim();
+    if (!number || !this.model.agencyId) { this.lookupNote = null; return; }
+    this.lookupNote = 'Looking up contract-of-record…';
+    this.ai.lookupContract(number, this.model.agencyId).subscribe({
+      next: (res: ContractLookupResponse) => {
+        if (res.match !== 'found' || !res.static_fields) {
+          this.lookupNote = `No contract-of-record match (${res.match}) — fill fields manually`;
+          return;
+        }
+        const f = res.static_fields;
+        if (f['2']) this.model.modificationNumber = f['2'];
+        if (f['3']) this.model.effectiveDate = f['3'];
+        if (f['12']) this.sections.fundingCitation = f['12'];
+        // Original (base) PoP from the contract-of-record — feeds the AI draft so
+        // it cites real dates instead of [Insert original base period dates].
+        if (f['popStart']) this.popOriginalStart = f['popStart'];
+        if (f['popEnd']) this.popOriginalEnd = f['popEnd'];
+        this.lookupNote = `Auto-filled from ${res.source_citation?.system ?? 'contract-of-record'}`;
+      },
+      error: () => { this.lookupNote = 'Lookup unavailable — fill fields manually'; },
+    });
+  }
+
+  /**
+   * FAR authority is a function of the modification action, not the base contract,
+   * so it derives from the mod type (not the contract-of-record lookup). The CO can
+   * still override the field manually after selecting a type.
+   */
+  private readonly farAuthorityByType: Record<string, string> = {
+    unilateral_change_order: 'FAR 52.243-1 — Changes',
+    unilateral_admin:        'FAR 43.101 — Administrative change',
+    bilateral_supplemental:  'FAR 43.103(a) — Supplemental Agreement',
+  };
 
   onModTypeChange(): void {
     // Bilateral supplemental agreements require contractor consent (FAR 43.103).
     this.model.contractorConsentRequired = this.model.modType === 'bilateral_supplemental';
+    // Derive the FAR authority from the selected type.
+    const authority = this.farAuthorityByType[this.model.modType ?? ''];
+    if (authority) this.model.farAuthority = authority;
   }
 
   back(): void {
@@ -197,13 +269,44 @@ export class ContractModificationWizardComponent {
   }
 
   aiDraft(section: 'changeNarrative' | 'priceCostImpact'): void {
-    // Stubbed — in W2 this hits POST /draft-contract-modification through the
-    // gateway. For instructor demo, populate plausible placeholder text.
+    // Real call to ai-orchestrator: prompt | ChatBedrock | parser, traced by
+    // LangSmith. Falls back to a deterministic local draft if the service is
+    // unreachable so the wizard still works offline.
+    this.drafting = section;
+    this.ai.draftSection({
+      kind: section === 'changeNarrative' ? 'rationale' : 'price_cost',
+      title: this.model.title,
+      contract_number: this.model.contractNumber,
+      mod_type: this.model.modType,
+      far_authority: this.model.farAuthority,
+      funding_delta: this.model.fundingDelta,
+      pop_changed: !!this.model.popStart || !!this.model.popEnd,
+      pop_original_start: this.popOriginalStart,
+      pop_original_end: this.popOriginalEnd,
+      pop_revised_start: this.model.popStart,
+      pop_revised_end: this.model.popEnd,
+    }).subscribe({
+      next: (res) => {
+        this.sections[section] = res.draft;
+        this.draftProvenance[section] = res.stub
+          ? `stub fallback · ${res.model}`
+          : `${res.model}${res.traced ? ' · traced (LangSmith)' : ''}`;
+        this.drafting = null;
+      },
+      error: () => {
+        this.sections[section] = this.localDraft(section);
+        this.draftProvenance[section] = 'offline draft (service unreachable)';
+        this.drafting = null;
+      },
+    });
+  }
+
+  /** Deterministic local fallback used only when ai-orchestrator is unreachable. */
+  private localDraft(section: 'changeNarrative' | 'priceCostImpact'): string {
     if (section === 'changeNarrative') {
-      this.sections.changeNarrative = `RATIONALE. This ${this.formatType(this.model.modType)} to contract ${this.model.contractNumber || '[contract #]'} is issued under ${this.model.farAuthority || 'the Changes clause'}.\n\nThe Government requires the following change: ${this.model.title || '[title]'}. ${this.model.description || ''}\n\nFUNDING/POP IMPACT. Net obligation change of $${(this.model.fundingDelta || 0).toLocaleString()}. ${this.model.popStart ? 'Period of performance revised.' : 'No change to period of performance.'}\n\n[AI-DRAFTED placeholder — to be reviewed by COR / CO before the SF-30 is issued. Item 4 / Item 5 surface.]`;
-    } else {
-      this.sections.priceCostImpact = `PRICE/COST IMPACT (FAR 43.204).\n\nProposed equitable adjustment: $${(this.model.fundingDelta || 0).toLocaleString()}.\nBasis of estimate: contractor proposal under review; independent Government cost estimate pending.\nDCAA audit: ${Math.abs(this.model.fundingDelta || 0) > 750000 ? 'required (over TINA threshold — certified cost or pricing data)' : 'not required at this dollar value'}.\n\n[AI-DRAFTED placeholder.]`;
+      return `RATIONALE. This ${this.formatType(this.model.modType)} to contract ${this.model.contractNumber || '[contract #]'} is issued under ${this.model.farAuthority || 'the Changes clause'}.\n\nThe Government requires the following change: ${this.model.title || '[title]'}. ${this.model.description || ''}\n\nFUNDING/POP IMPACT. Net obligation change of $${(this.model.fundingDelta || 0).toLocaleString()}. ${this.model.popStart ? 'Period of performance revised.' : 'No change to period of performance.'}`;
     }
+    return `PRICE/COST IMPACT (FAR 43.204).\n\nProposed equitable adjustment: $${(this.model.fundingDelta || 0).toLocaleString()}.\nBasis of estimate: contractor proposal under review; independent Government cost estimate pending.\nDCAA audit: ${Math.abs(this.model.fundingDelta || 0) > 750000 ? 'required (over TINA threshold — certified cost or pricing data)' : 'not required at this dollar value'}.`;
   }
 
   private formatType(t?: string): string {

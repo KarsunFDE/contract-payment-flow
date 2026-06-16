@@ -108,13 +108,17 @@ export const FIXTURE_AMENDMENTS: Amendment[] = [
     issuedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
   },
   {
+    // Bilateral supplemental agreement awaiting the contractor's signature — the CO
+    // issues it (Act 1); the contractor signs it from the vendor portal (Act 2).
     id: 'am-0002',
     contractModificationId: 'sol-0142',
     number: 2,
-    changeSummary: 'Extend proposal deadline by 7 days; clarify Section L page limit (60 pages including ToC).',
+    changeSummary: 'Bilateral supplemental agreement (SF-30, FAR 43.103(a)): exercise Option Year 2, '
+      + 'add incremental funding (+$2,450,000), and extend the period of performance 12 months. '
+      + 'Contractor signature required before the modification takes effect.',
     effectiveAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
     requiresAcknowledgement: true,
-    acknowledgedBy: ['vnd-acme'],
+    acknowledgedBy: [],
     issuedBy: 'co-reeves',
     issuedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
   },
@@ -166,7 +170,7 @@ export const FIXTURE_PROPOSALS: Proposal[] = [
     ],
     submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
     sealedUntil: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString(),
-    amendmentAcks: [1, 2],
+    amendmentAcks: [1],
   },
   {
     id: 'prop-002',

@@ -120,7 +120,9 @@
   → assemble_form_node (agent tool calls populate the web form DRAFT)
   → CO HITL GATE (approve / deny)
         deny  → supersede + restart (fresh)
-        approve → CO-triggered submit (irreversible, FAR 43.102)
+        approve → [if bilateral (FAR 43.103(a)): contractor consent gate
+                    — contractor signs Block 15; no consent → not submitted]
+                → CO-triggered submit (irreversible, FAR 43.102)
   → audit (append-only, every node)</pre>
 
   <h3>Workflow Diagram</h3>
@@ -204,11 +206,25 @@
                     deny |                 | approve
                          v                 v
         +----------------------+   +-----------------------------+
-        | supersede + restart  |   | CO-triggered submit         |
-        |   [TOOL]             |   |   [HUMAN]-&gt;[TOOL]           |
-        | audit prior pkg,     |   | irreversible, FAR 43.102,   |
-        | re-run from lookup   |   | DRAFT -> MODIFICATION_REQ   |
-        +----------+-----------+   +-----------------------------+
+        | supersede + restart  |   | bilateral?         [TOOL]   |
+        |   [TOOL]             |   | (Block 13 / FAR 43.103)     |
+        | audit prior pkg,     |   +----+-------------------+----+
+        | re-run from lookup   |   unil |              bilat |
+        +----------+-----------+ 43.103(b)          43.103(a)
+                   |                 |                    v
+                   |                 |    +-----------------------------+
+                   |                 |    | contractor consent [HUMAN]  |
+                   |                 |    | contractor signs Block 15;  |
+                   |                 |    | no consent -&gt; NOT submitted |
+                   |                 |    +--------------+--------------+
+                   |                 |                   | consent recorded
+                   |                 v                   v
+                   |        +-----------------------------+
+                   |        | CO-triggered submit         |
+                   |        |   [HUMAN]-&gt;[TOOL]           |
+                   |        | irreversible, FAR 43.102,   |
+                   |        | DRAFT -> MODIFICATION_REQ   |
+                   |        +-----------------------------+
                    |
                    +----------> (loop back to lookup_node)
 
@@ -222,9 +238,10 @@
     [AI-&gt;TOOL] classify_modification_node, assemble_form_node
                (agent reasons -&gt; deterministic tool/retrieval)
     [TOOL]     lookup_node, validate_lookup, populate static fields,
-               retrieve_node, supersede/restart, submit REST write
+               retrieve_node, bilateral/unilateral branch,
+               supersede/restart, submit REST write
     [HUMAN]    contract-# entry + change statement, CO HITL gate,
-               submit trigger</pre>
+               contractor consent (bilateral only), submit trigger</pre>
 
   <p>Steps cannot be reordered. The Block 14 sub-pipeline is <strong>ADR-0005 verbatim</strong>. This ADR replaces ADR-0006's upload/extract front end with the lookup front end; the form-fill tool layer, CO gate, submit, and audit are otherwise as ADR-0006.</p>
 
@@ -275,7 +292,21 @@
     <li>Block 13 classified type/authority + governing FAR 43.103 citation.</li>
     <li>Block 14 draft text, retrieved FAR/DFARS clause IDs + excerpts, citation mapping, confidence score, faithfulness score, and model ID + version.</li>
   </ul>
-  <p>CO actions: <strong>Approve</strong> → CO triggers submission (irreversible, recorded). <strong>Deny</strong> → prior package invalidated and marked superseded; workflow restarts from <code>lookup_node</code>; the supersession event is audited (never a silent discard).</p>
+  <p>CO actions: <strong>Approve</strong> → for a <strong>unilateral</strong> mod (FAR 43.103(b)) the CO triggers submission directly (irreversible, recorded); for a <strong>bilateral</strong> mod (FAR 43.103(a)) approval routes through the contractor-consent gate (below) <em>before</em> submission. <strong>Deny</strong> → prior package invalidated and marked superseded; workflow restarts from <code>lookup_node</code>; the supersession event is audited (never a silent discard).</p>
+
+  <h3>Bilateral vs Unilateral — Contractor Consent (new — REQ-CONSENT)</h3>
+  <p>FAR 43.103 splits modifications by who must sign:</p>
+  <ul>
+    <li><strong>Bilateral (FAR 43.103(a)) — supplemental agreement.</strong> Signed by <strong>both</strong> the contractor and the CO. Used for negotiated equitable adjustments, definitizing letter contracts, and any change to terms the contractor must agree to. The contractor's signature (SF-30 <strong>Block 15</strong>) is the legal expression of consent.</li>
+    <li><strong>Unilateral (FAR 43.103(b)).</strong> Signed by the CO only — administrative changes, change orders, and changes authorized by an existing contract clause (Changes, Options, etc.). No contractor consent required.</li>
+  </ul>
+  <p><code>classify_modification_node</code> (Block 13 / FAR 43.103 A–E) already determines the modification type; it sets <code>contractorConsentRequired</code> on the draft via <code>set_funding_pop</code>. When that flag is true, the workflow adds a <strong>contractor-consent gate</strong> on the approve path:</p>
+  <ul>
+    <li>After the CO approves the assembled package, a bilateral mod <strong>cannot</strong> transition <code>DRAFT → MODIFICATION_REQUEST</code> until contractor consent (Block 15 signature) is <strong>recorded</strong> as an explicit human action. Unilateral mods skip this gate and the CO submits directly.</li>
+    <li><strong>Consent is never AI-generated.</strong> Same bar as the Blocks 15–16 signatures (already never AI-generated above) — the agent has no tool to attest, sign, or infer contractor consent. It records only an actual contractor signature event captured through the UI.</li>
+    <li><strong>Fail-closed.</strong> A bilateral mod with <code>contractorConsentRequired = true</code> and no recorded consent is blocked at submission, mirroring the CO-only submit bound. The contract-modification-service write path enforces this — the agent is not the boundary.</li>
+    <li>The consent event is audited (<code>contractor_consent_recorded</code>, below), carrying the contractor identity, Block 15 signature reference, and timestamp.</li>
+  </ul>
 
   <h3>Pause / Resume, Retry, Context (as ADR-0006)</h3>
   <p>The CO gate is a LangGraph <strong>interrupt</strong> with a persisted MongoDB checkpoint; a paused package survives a multi-day delay and a restart and resumes without regeneration on approve (deny regenerates from scratch). Retry policy inherits ADR-0004/0005 §10 (max 4, backoff + 20% jitter) and applies to the lookup, Bedrock, and retrieval calls. No summarization/compression node — the package is small and the full audit trail is retained for DCAA replay.</p>
@@ -287,6 +318,7 @@
     <li><code>static_fields_populated</code> — which blocks were auto-filled from which record + source citation.</li>
     <li><code>form_field_written</code> — which tool wrote which block to the draft.</li>
     <li><code>co_decision</code> — approve/deny, CO identity + role + timestamp.</li>
+    <li><code>contractor_consent_recorded</code> — on a bilateral mod, contractor identity, Block 15 signature reference, timestamp (the FAR 43.103(a) consent event).</li>
     <li><code>package_superseded</code> — on deny, prior chain marked non-reusable.</li>
     <li><code>modification_submitted</code> — on approve, the irreversible execution record.</li>
   </ul>
@@ -303,9 +335,11 @@
       <tr><td><code>populated_fields</code></td><td>dict</td><td>Block → {value, source_citation}</td></tr>
       <tr><td><code>form_draft_id</code></td><td>string</td><td>The draft modification record being populated</td></tr>
       <tr><td><code>co_decision</code></td><td><code>pending</code> | <code>approved</code> | <code>denied</code></td><td>CO gate outcome</td></tr>
+      <tr><td><code>modification_bilateral</code></td><td>bool</td><td>FAR 43.103(a) bilateral (consent required) vs (b) unilateral</td></tr>
+      <tr><td><code>contractor_consent</code></td><td><code>not_required</code> | <code>pending</code> | <code>recorded</code></td><td>Block 15 consent state</td></tr>
     </tbody>
   </table>
-  <p><code>gate_status</code> gains <code>CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW</code> (replacing ADR-0006's <code>EXTRACTION_LOW_CONFIDENCE_*</code>), alongside the ADR-0005 <code>RAG_FAILED_*</code> and <code>FAITHFULNESS_FAILED_*</code> states.</p>
+  <p><code>gate_status</code> gains <code>CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW</code> (replacing ADR-0006's <code>EXTRACTION_LOW_CONFIDENCE_*</code>) and <code>AWAITING_CONTRACTOR_CONSENT</code>, alongside the ADR-0005 <code>RAG_FAILED_*</code> and <code>FAITHFULNESS_FAILED_*</code> states.</p>
 
   <hr>
 
@@ -328,6 +362,7 @@
     <li><strong>CO types all of Blocks 1–12 manually (no lookup).</strong> Rejected — re-keying authoritative contract data is error-prone and the data already exists in the system of record. Lookup removes transcription error and grounds the static blocks in the contract record. (Manual entry remains the rollback path.)</li>
     <li><strong>Ungrounded rationale drafting.</strong> Rejected (ADR-0004 Alt #1) — ungrounded FAR citations are a compliance violation. Block 14 stays on the ADR-0005 grounded pipeline.</li>
     <li><strong>Agent holds a <code>submit_modification</code> tool.</strong> Rejected — FAR 43.102 reserves execution to the CO. Submission is a CO-only UI action.</li>
+    <li><strong>Agent attests / auto-populates contractor consent for bilateral mods.</strong> Rejected — a bilateral supplemental agreement (FAR 43.103(a)) requires the contractor's actual signature (Block 15). Consent is a recorded human act, never AI-generated, held to the same bar as the CO-only submit and the never-AI-generated signature blocks. The agent records a real consent event; it cannot manufacture one.</li>
   </ol>
 
   <hr>
@@ -340,6 +375,7 @@
     <li>Provenance shifts from PyMuPDF bbox to a <strong>source-of-record citation</strong> (system + record id + fetch time); the gate UI must render it so the CO can verify each auto-filled value against the system of record.</li>
     <li><strong>Now consistent with ADR-0005 §4</strong> — Blocks 1–12 come from structured DB lookup exactly as §4 specifies (ADR-0006's extraction was the divergence).</li>
     <li>Submission remains CO-only (FAR 43.102), enforced at the API Gateway.</li>
+    <li><strong>Bilateral mods gate on contractor consent.</strong> When <code>contractorConsentRequired</code> is true (FAR 43.103(a)), the contract-modification-service must persist the consent state and reject <code>DRAFT → MODIFICATION_REQUEST</code> until a contractor signature (Block 15) is recorded — fail-closed, mirroring the CO-only submit bound. The <code>contractorConsentRequired</code> field already exists on the model; the consent-state persistence and the gate check are new.</li>
     <li>All ADR-0004 / ADR-0005 gates (confidence 0.85, faithfulness 0.85, retry tests, audit schema, CO role verification) remain prerequisites.</li>
   </ul>
   <p><strong>Hard prerequisites before approve→submit can go live</strong> (existing brownfield debt this workflow forces closed on the write path):</p>
