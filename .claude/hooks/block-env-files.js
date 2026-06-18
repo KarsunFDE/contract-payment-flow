@@ -36,10 +36,22 @@ process.stdin.on('end', () => {
           break;
         }
       }
+    } else if (toolName === 'Grep') {
+      // Check both the path argument (directory/file being searched) and the
+      // glob/pattern args — a pattern like "\.env" targeting a .env file or
+      // a path pointing directly at one should both be caught.
+      const paths = [toolInput.path, toolInput.file_path].filter(Boolean).map(String);
+      const globs  = [toolInput.glob].filter(Boolean).map(String);
+      const pathBlocked = paths.some(
+        v => /[/\\]?\.env(?![a-zA-Z0-9_])(\.[^./\\]*)?$/.test(v) && !SAFE.test(v)
+      );
+      // Block Grep patterns that directly target a .env file name/path
+      const globBlocked = globs.some(
+        v => /\.env(?![a-zA-Z0-9_])/.test(v) && !SAFE.test(v)
+      );
+      blocked = pathBlocked || globBlocked;
     } else {
-      // Read, Write, Edit, Glob, Grep — check file path fields
-      // Known gap: only file_path/path are checked; a Grep content search over
-      // a directory can still surface .env lines in its results.
+      // Read, Write, Edit, Glob — check file path fields
       const paths = [toolInput.file_path, toolInput.path].filter(Boolean).map(String);
       blocked = paths.some(
         v => /[/\\]?\.env(?![a-zA-Z0-9_])(\.[^./\\]*)?$/.test(v) && !SAFE.test(v)
@@ -60,7 +72,18 @@ process.stdin.on('end', () => {
     }
     process.exit(0);
   } catch {
-    // Deliberate fail-open: a hook crash on malformed input must not brick all tool use.
+    // Fail-closed on malformed hook input: deny the tool use rather than silently
+    // allowing it, so a crafted or truncated payload cannot bypass this hook.
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason:
+            'block-env-files hook received malformed input; denying as a precaution.',
+        },
+      })
+    );
     process.exit(0);
   }
 });

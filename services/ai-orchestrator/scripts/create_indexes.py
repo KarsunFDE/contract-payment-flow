@@ -35,6 +35,7 @@ plan requires both verified before go-live (Step 5.3).
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 
@@ -275,6 +276,25 @@ def main() -> int:
     staging = database["corpus_staging"]
     staging.create_index([("expires_at", 1)], name="staging_ttl", expireAfterSeconds=0)
     log.info("ensured TTL index %r on %s.expires_at", "staging_ttl", staging.name)
+
+    # Unique index on execution_log.idempotency_key — the money-path TOCTOU fix
+    # (Codex finding 1). execution_log.claim() relies on this index to make
+    # concurrent duplicate-key races safe at the DB layer: the first insert wins;
+    # all subsequent concurrent inserts raise DuplicateKeyError (replay/no-op).
+    # create_index is idempotent — same name/spec on an existing index is a no-op.
+    execution_log_col = database[
+        os.environ.get("EXECUTION_LOG_COLLECTION", "execution_log")
+    ]
+    execution_log_col.create_index(
+        [("idempotency_key", 1)],
+        unique=True,
+        name="execution_log_idempotency_key_unique",
+    )
+    log.info(
+        "ensured unique index %r on %s.idempotency_key",
+        "execution_log_idempotency_key_unique",
+        execution_log_col.name,
+    )
 
     # Check what already exists so re-runs are safe to call repeatedly.
     existing = existing_search_indexes(collection)

@@ -10,14 +10,21 @@ Stub vs real LLM: the nodes call Bedrock via app.bedrock_client, which returns a
 stub when no AWS creds resolve (dev/test) and a real InvokeModel otherwise. When
 LANGSMITH_TRACING + LANGSMITH_API_KEY are set, the compiled graph (a LangChain
 Runnable) traces every node to LangSmith automatically on invoke.
+
+Identity on resume: the gateway MUST assert X-User-Id / X-User-Role / X-Tenant-Id
+on every resume request. The endpoint reads them via FastAPI Header() params
+(Annotated[str, Header()] — official FastAPI pattern; underscores auto-converted
+to hyphens). Missing/blank/"anonymous" values are rejected before the graph is
+resumed so the downstream submit node always receives a verified identity.
 """
 from __future__ import annotations
 
+import enum
 import logging
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.workflow import contract_lookup, runner
@@ -43,11 +50,27 @@ class TriageRequest(BaseModel):
     idempotency_key: str | None = None  # money-path dedupe (auto_process lane)
 
 
+class CoDecision(str, enum.Enum):
+    """Strict enum for CO gate decisions (approved | denied).
+
+    Inherits str so Pydantic v2 validates the raw JSON string against the members
+    (official Pydantic v2 pattern: class Foo(str, enum.Enum)).  Any other value
+    causes a 422 Unprocessable Entity before the handler runs.
+    """
+    approved = "approved"
+    denied = "denied"
+
+
 class ResumeRequest(BaseModel):
-    """Resume a paused run. `decision` is forwarded to whichever gate paused it:
-    the CO gate expects "approved" | "denied"; the consent gate expects an object
-    like {"signed": true}."""
-    decision: Any
+    """Resume a paused CO-gate run.
+
+    `decision` is validated against CoDecision ("approved" | "denied").
+    Any other value is rejected with HTTP 422 by Pydantic before the handler runs.
+    Body-supplied identity fields are intentionally absent — identity is read
+    exclusively from gateway-asserted headers (X-User-Id / X-User-Role /
+    X-Tenant-Id) so callers cannot self-elevate.
+    """
+    decision: CoDecision
 
 
 def _render(result: dict, thread_id: str, correlation_id: str) -> dict:
@@ -126,8 +149,103 @@ def start_triage(req: TriageRequest) -> dict:
 
 
 @router.post("/triage/{thread_id}/resume")
-def resume_triage(thread_id: str, req: ResumeRequest) -> dict:
-    """Resume a paused triage run with the CO decision (or consent payload)."""
-    log.info("workflow/triage resume thread_id=%s", thread_id)
-    result = runner.resume_triage_after_decision(req.decision, thread_id)
-    return _render(result, thread_id, thread_id)
+def resume_triage(
+    thread_id: str,
+    req: ResumeRequest,
+    # Gateway-asserted identity headers — required, no default.
+    # FastAPI Header() automatically converts underscores → hyphens, so
+    # x_user_id reads from the HTTP header X-User-Id, etc.
+    # Ref: https://fastapi.tiangolo.com/tutorial/header-params/
+    x_user_id: Annotated[str, Header()],
+    x_user_role: Annotated[str, Header()],
+    x_tenant_id: Annotated[str, Header()],
+) -> dict:
+    """Resume a paused triage run with the CO decision.
+
+    Identity is read exclusively from gateway-asserted headers — body-supplied
+    values are never trusted.  The endpoint:
+      1. Rejects missing/blank/"anonymous" identity (HTTP 401/403).
+      2. Validates `decision` via CoDecision enum — only "approved"/"denied"
+         accepted; anything else is rejected with HTTP 422 by Pydantic before
+         this handler even runs.
+      3. Reads the checkpointed thread state via graph.get_state() (official
+         LangGraph API: StateSnapshot.values — langchain-ai/langgraph types.py)
+         to verify the thread exists and the caller's tenant matches.
+      4. Patches the verified identity (co_user_id, co_role, agency_id,
+         correlation_id) into the graph via graph.update_state() before
+         resuming so downstream submit/cancel nodes always receive a confirmed
+         CO identity, not body-supplied values.
+    """
+    from langgraph.checkpoint.mongodb import MongoDBSaver
+    from langgraph.types import Command
+
+    from app import config as app_config
+    from app.workflow.triage_graph import build_triage_graph
+
+    # --- 1. Identity guard: reject missing/blank/"anonymous" ---
+    for header_name, header_value in (
+        ("X-User-Id",   x_user_id),
+        ("X-User-Role", x_user_role),
+        ("X-Tenant-Id", x_tenant_id),
+    ):
+        if not header_value or not header_value.strip():
+            raise HTTPException(
+                status_code=401,
+                detail=f"{header_name} header is missing or blank",
+            )
+    if x_user_id.strip().lower() == "anonymous":
+        raise HTTPException(
+            status_code=403,
+            detail="anonymous callers may not resume a workflow",
+        )
+
+    actor_id   = x_user_id.strip()
+    actor_role = x_user_role.strip()
+    agency_id  = x_tenant_id.strip()
+
+    thread_cfg: dict = {"configurable": {"thread_id": thread_id}}
+
+    with MongoDBSaver.from_conn_string(app_config.MONGO_URL, app_config.MONGO_DB) as saver:
+        graph = build_triage_graph().compile(checkpointer=saver)
+
+        # --- 2. Verify thread exists; extract agency for mismatch check ---
+        # graph.get_state() returns a StateSnapshot NamedTuple; .values is the
+        # state dict.  Returns an empty snapshot (values={}) when unknown.
+        # Ref: langchain-ai/langgraph types.py — StateSnapshot.values
+        snapshot = graph.get_state(thread_cfg)
+        if not snapshot or not snapshot.values:
+            raise HTTPException(status_code=404, detail=f"thread {thread_id!r} not found")
+
+        thread_state: dict[str, Any] = snapshot.values
+        thread_agency = thread_state.get("agency_id")
+        if thread_agency and thread_agency != agency_id:
+            raise HTTPException(
+                status_code=403,
+                detail="caller agency does not match thread agency",
+            )
+
+        correlation_id: str = thread_state.get("correlation_id") or thread_id
+
+        # --- 3. Patch verified identity into graph state before resuming ---
+        # graph.update_state() merges the values dict into the latest checkpoint
+        # for this thread using the state reducers (LangGraph persistence API).
+        # Ref: https://docs.langchain.com/oss/python/langgraph/use-time-travel
+        identity_patch: dict[str, Any] = {
+            "co_user_id":     actor_id,
+            "co_role":        actor_role,
+            "agency_id":      agency_id,
+            "correlation_id": correlation_id,
+        }
+        graph.update_state(thread_cfg, identity_patch)
+
+        log.info(
+            "workflow/triage resume thread_id=%s actor=%s role=%s agency=%s decision=%s",
+            thread_id, actor_id, actor_role, agency_id, req.decision.value,
+        )
+
+        # --- 4. Resume the graph interrupt with the validated decision string ---
+        # CoDecision is a str-enum; .value gives the plain string the co_gate
+        # interrupt expects ("approved" | "denied").
+        result = graph.invoke(Command(resume=req.decision.value), thread_cfg)
+
+    return _render(result, thread_id, correlation_id)

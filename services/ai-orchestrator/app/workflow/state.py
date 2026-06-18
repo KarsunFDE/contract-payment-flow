@@ -16,6 +16,10 @@ LangGraph passes one TypedDict state dict between nodes; declaring it with
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from typing import Any
+
 from typing_extensions import TypedDict
 
 
@@ -48,6 +52,9 @@ class WorkflowState(TypedDict, total=False):
     # --- Block 14 grounded sub-pipeline (ADR-0005 §4) ---
     retrieved_chunks: list        # ADR-0005 §1 names this `documents`; same data
     confidence: float             # aggregate LLM-as-judge score (ADR-0005 §4)
+    draft_model_tier: str         # "haiku" (default) | "sonnet" — set to "sonnet" by
+                                  # confidence_check on confidence-fail (ADR-0006 fallback)
+    draft_model: str              # the Bedrock model id that actually produced block_14_draft
     block_14_draft: str           # ADR-0005 §1 names this `draft`; the Block 14 text
 
     # --- integrity ---
@@ -63,3 +70,24 @@ class WorkflowState(TypedDict, total=False):
     co_execution: str             # "pending" | "executed" | "aborted" — the
                                   # final-package execution decision (FAR 43.102),
                                   # distinct from co_decision
+
+
+def compute_package_hash(state: "WorkflowState") -> str:
+    """Return a stable SHA-256 hex digest of the package-defining fields.
+
+    Covers the three fields whose content fully defines the modification package
+    for DCAA audit binding: populated_fields, block_14_draft, and
+    block13_classification.  Serialised with sort_keys=True for determinism so
+    the same logical package always produces the same hash regardless of dict
+    insertion order (Codex finding #3).
+
+    Imported by nodes_gate.py as:
+        from app.workflow.state import compute_package_hash
+    """
+    payload: dict[str, Any] = {
+        "populated_fields":       state.get("populated_fields"),
+        "block_14_draft":         state.get("block_14_draft"),
+        "block13_classification": state.get("block13_classification"),
+    }
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()

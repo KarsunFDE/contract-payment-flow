@@ -170,3 +170,59 @@ def test_lookup_node_not_found(monkeypatch):
     monkeypatch.setattr(nodes_lookup, "record_event", lambda *a, **k: None)
     result = nodes_lookup.lookup_node(_STATE)
     assert result["contract_record"]["match"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# NEW negative-path coverage — lookup failure / ambiguous / cross-agency
+# routes to terminal CO review, never assembles a draft
+# ---------------------------------------------------------------------------
+
+def test_route_after_lookup_ok_goes_to_populate():
+    """gate_status == OK → populate (normal path)."""
+    assert nodes_lookup.route_after_lookup({"gate_status": "OK"}) == "populate"
+
+
+def test_route_after_lookup_not_found_routes_to_co_gate():
+    """lookup failure (not_found) → gate routes to co_gate, not populate."""
+    state = {"gate_status": "CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW"}
+    assert nodes_lookup.route_after_lookup(state) == "co_gate"
+
+
+def test_route_after_lookup_ambiguous_routes_to_co_gate():
+    """Ambiguous lookup → validate sets blocking status → route to co_gate."""
+    # validate_lookup_node sets the status; route_after_lookup reads it.
+    validate_result = nodes_lookup.validate_lookup_node(
+        {"contract_record": {"match": "ambiguous"}}
+    )
+    merged = {"gate_status": validate_result["gate_status"]}
+    assert nodes_lookup.route_after_lookup(merged) == "co_gate"
+
+
+def test_route_after_lookup_cross_agency_routes_to_co_gate(monkeypatch):
+    """Cross-agency lookup returns not_found → gate blocks at co_gate."""
+    monkeypatch.setattr(nodes_lookup, "_sam_gov", _MockClient([_SEEDED]))
+    monkeypatch.setattr(nodes_lookup, "record_event", lambda *a, **k: None)
+    # Request under different agency — client filter yields nothing.
+    cross_state = {**_STATE, "agency_id": "agency-dod"}
+    lookup_result = nodes_lookup.lookup_node(cross_state)
+    validate_result = nodes_lookup.validate_lookup_node(lookup_result)
+    assert validate_result["gate_status"] == "CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW"
+    assert nodes_lookup.route_after_lookup(validate_result) == "co_gate"
+
+
+def test_validate_sticky_blocking_status_not_overwritten():
+    """A prior blocking gate_status must not be clobbered by validate_lookup_node."""
+    # If a blocking status is already set, validate returns {} (no overwrite).
+    prior_blocking = {"gate_status": "CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW",
+                      "contract_record": {"match": "found"}}
+    result = nodes_lookup.validate_lookup_node(prior_blocking)
+    assert result == {}
+
+
+def test_lookup_node_missing_agency_id_fails_closed(monkeypatch):
+    """lookup_node with no agency_id in state returns blocking CO-review status."""
+    monkeypatch.setattr(nodes_lookup, "_sam_gov", _MockClient([_SEEDED]))
+    monkeypatch.setattr(nodes_lookup, "record_event", lambda *a, **k: None)
+    state = {k: v for k, v in _STATE.items() if k != "agency_id"}
+    result = nodes_lookup.lookup_node(state)
+    assert result["gate_status"] == "CONTRACT_NOT_FOUND_AWAITING_CO_REVIEW"

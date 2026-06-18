@@ -1,5 +1,8 @@
 # ADR 0006 (Alternative) — Contract-Lookup SF-30 Modification Workflow
 
+> **Note:** `docs/adrs/0006-contract-lookup-sf30-workflow.html` is a non-authoritative rendered
+> mirror of this file. This `.md` is the source of truth; edit here, not in the `.html`.
+
 *An alternative to ADR-0006 — same workflow, contract-number lookup instead of SF-30 upload.*
 
 Date: 2026-06-10
@@ -116,23 +119,25 @@ Each node is tagged with what executes it:
                   +---------------+---------------+
                                   |
   +===============================v=============================+
-  |  Block 14 grounded sub-pipeline   (ADR-0005, verbatim)      |
+  |  Block 14 grounded sub-pipeline   (ADR-0005 + ADR-0006)     |
   |                                                             |
-  |   retrieve_node      confidence_check  --( < 0.85 )--+      |
-  |     [TOOL]      -->     [AI]                          |      |
-  |   (/retrieve:               |                        |      |
-  |    hybrid RRF +             | >= 0.85                |      |
-  |    cross-encoder,           v                        |      |
-  |    no LLM)            draft_node  [AI]               |      |
-  |                       (Haiku generates)             |      |
-  |                             |                        |      |
-  |                             v                        |      |
-  |                  faithfulness_gate  --( < 0.85 )--+  |      |
-  |                       [AI]   |                    |  |      |
-  |                  (RAGAS judge)|                   |  |      |
-  +==============================|====================|==|======+
-                                 | >= 0.85            |  |
-                                 v                    v  v
+  |   retrieve_node  -->  confidence_check [AI]                 |
+  |     [TOOL]                    |   (Haiku LLM-as-judge over   |
+  |   (/retrieve:                 |    the retrieved chunks)     |
+  |    hybrid RRF +               | chunks present:              |
+  |    cross-encoder,             |   >= 0.85 -> draft w/ Haiku  |
+  |    no LLM)                    |   <  0.85 -> draft w/ Sonnet |
+  |                               |   (MODEL escalation, NOT CO) |
+  |                               v                              |
+  |                        draft_node  [AI]                      |
+  |               (Haiku; Sonnet on confidence-fail)             |
+  |                               |                              |
+  |                               v                              |
+  |                  faithfulness_gate  --( < 0.85 )-------+     |
+  |                       [AI]    |                        |     |
+  |                  (RAGAS judge) | >= 0.85               |     |
+  +===============================|=======================|=====+
+                                  v                       v
                   +-------------------------------+   gate_status =
                   | assemble_form_node [AI->TOOL] |   *_AWAITING_
                   |  agent reasons, then calls    |   CO_REVIEW
@@ -173,9 +178,13 @@ Each node is tagged with what executes it:
                    |
                    +----------> (loop back to lookup_node)
 
-  Note: a not-found / ambiguous lookup, or a confidence/faithfulness
-  failure, does not dead-end -- it sets gate_status and surfaces at the
-  CO HITL gate, where the CO may retry, edit manually, or escalate.
+  Note: a low retrieval confidence (chunks present, aggregate < 0.85) does NOT
+  go straight to the CO -- it escalates the DRAFT model from Haiku to Sonnet
+  (ADR-0006 "Sonnet fallback only on confidence-fail") and lets the
+  faithfulness_gate judge the result. A not-found / ambiguous lookup, zero
+  retrieved chunks, a judge error, or a faithfulness failure does not dead-end
+  either -- it sets gate_status and surfaces at the CO HITL gate, where the CO
+  may retry, edit manually, or escalate.
 
   AI vs programmatic summary:
     [AI]       confidence_check, draft_node, faithfulness_gate
@@ -434,6 +443,10 @@ workflow forces closed on the write path):
 - One gateway-asserted identity convention across services (B1).
 - Agency scoping on the `lookup_node` and the write path (Item 10).
 - A new contract-lookup endpoint (by contract number) + the contract-of-record client.
+- **REQ-AGT-5 (relational lineage / Postgres recursive-CTE) is a BLOCKING external
+  dependency** and is not in-scope-complete here. The modification lineage graph (supersession
+  chains, mod-history traversal) requires the recursive-CTE query against Postgres that REQ-AGT-5
+  specifies; until that is implemented the lineage view at the CO gate is incomplete.
 
 ## Rollback Story
 

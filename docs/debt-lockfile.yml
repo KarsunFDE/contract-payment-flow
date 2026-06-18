@@ -107,7 +107,7 @@ items:
 
   - id: 10
     name: no-multi-tenant-boundary
-    locked: true
+    locked: false
     scheduled_unlock_week: W2-Wed
     teaching_anchor: multi-tenant-retrieval-boundary
     test_marker: brownfield_debt_10

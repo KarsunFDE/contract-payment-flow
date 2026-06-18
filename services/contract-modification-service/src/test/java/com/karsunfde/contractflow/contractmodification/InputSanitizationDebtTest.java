@@ -56,7 +56,8 @@ class InputSanitizationDebtTest {
         req.setDescription(XSS_PAYLOAD);
         req.setStatus("DRAFT");
 
-        svc.create(req, "user@example.com");
+        // extra args satisfy new CO-authz service signature (compile fix only, not item-9 modernization)
+        svc.create(req, "user@example.com", "CONTRACTING_OFFICER", "agency-a");
 
         ArgumentCaptor<ContractModification> captor =
             ArgumentCaptor.forClass(ContractModification.class);
@@ -94,7 +95,8 @@ class InputSanitizationDebtTest {
         req.setDescription(XSS_PAYLOAD);
         req.setStatus("DRAFT");
 
-        svc.update("sol-1", req, "user@example.com");
+        // extra args satisfy new CO-authz service signature (compile fix only, not item-9 modernization)
+        svc.update("sol-1", req, "user@example.com", "CONTRACTING_OFFICER", "agency-a");
 
         ArgumentCaptor<ContractModification> captor =
             ArgumentCaptor.forClass(ContractModification.class);

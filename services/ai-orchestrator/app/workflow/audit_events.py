@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -33,11 +33,14 @@ log = logging.getLogger("ai-orchestrator.workflow.audit")
 WORKFLOW_AUDIT_COLLECTION = os.environ.get("WORKFLOW_AUDIT_COLLECTION", "workflow_audit")
 
 # The closed set of workflow/triage audit events (m3.md Phase 6 table + Step 7.5).
-# Reference list — kept permissive (not a hard Literal) so a new node can add an
-# event without a contract change, but every event SHOULD appear here.
-WORKFLOW_EVENT_TYPES = (
+# Hard frozenset — record_event raises on any unknown event_type so typos and
+# arbitrary strings never reach the append-only workflow_audit collection
+# (DCAA reconstruction requires a clean, known-event trail).
+WORKFLOW_EVENT_TYPES: frozenset[str] = frozenset({
     "contract_lookup",
+    "contract_lookup_failed",
     "static_fields_populated",
+    "confidence_escalation",
     "form_field_written",
     "co_decision",
     "contractor_consent_recorded",
@@ -45,7 +48,19 @@ WORKFLOW_EVENT_TYPES = (
     "modification_submitted",
     "item_triaged",
     "auto_processed",
-)
+})
+
+# High-consequence events that MUST carry actor identity, role, and package_hash
+# in their details payload (ADR-0006 audit contract; Codex finding #2).
+_HIGH_CONSEQUENCE_EVENTS: frozenset[str] = frozenset({
+    "co_decision",
+    "contractor_consent_recorded",
+    "package_superseded",
+    "modification_submitted",
+})
+
+# Exact key names callers (nodes_gate.py) must supply for high-consequence events.
+_REQUIRED_HC_KEYS: tuple[str, ...] = ("actor_id", "actor_role", "package_hash")
 
 
 def _utc_now() -> datetime:
@@ -72,7 +87,28 @@ def record_event(state: WorkflowState, event_type: str, details: dict) -> None:
     Raises ValueError if the state has no correlation_id — an untraceable event
     must never be written. Callers treat a raised exception as fatal for the
     step (fail-closed).
+
+    Raises ValueError for unknown event_type (not in WORKFLOW_EVENT_TYPES) or for
+    high-consequence events missing required actor/package keys (actor_id,
+    actor_role, package_hash — Codex findings #1 and #2).
     """
+    # Guard #1: strict event-type whitelist — typos must never reach the DB.
+    if event_type not in WORKFLOW_EVENT_TYPES:
+        raise ValueError(
+            f"unknown workflow audit event_type {event_type!r} — "
+            f"add it to WORKFLOW_EVENT_TYPES or fix the typo"
+        )
+
+    # Guard #2: high-consequence events must carry actor identity + package_hash.
+    if event_type in _HIGH_CONSEQUENCE_EVENTS:
+        missing = [k for k in _REQUIRED_HC_KEYS if not details.get(k)]
+        if missing:
+            raise ValueError(
+                f"high-consequence event {event_type!r} is missing required "
+                f"payload keys: {missing!r} — actor identity and package_hash "
+                "are mandatory for DCAA reconstruction (ADR-0006 audit contract)"
+            )
+
     # Fail-closed BEFORE touching the DB: an empty correlation_id would make the
     # event unreconstructable, defeating the whole point of this module.
     correlation_id = state.get("correlation_id")

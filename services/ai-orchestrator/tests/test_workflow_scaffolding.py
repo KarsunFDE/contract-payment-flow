@@ -80,6 +80,78 @@ def test_record_event_fails_closed_without_correlation_id():
         record_event({}, "co_decision", {})
 
 
+# ---------------------------------------------------------------------------
+# NEW negative-path coverage — audit_events whitelist + high-consequence guards
+# ---------------------------------------------------------------------------
+
+def test_record_event_unknown_event_type_raises():
+    """record_event raises ValueError for any event_type not in WORKFLOW_EVENT_TYPES."""
+    with pytest.raises(ValueError, match="unknown workflow audit event_type"):
+        record_event(
+            {"correlation_id": "c-1"},
+            "made_up_event",       # not in the whitelist
+            {"actor_id": "x", "actor_role": "CO", "package_hash": "h"},
+        )
+
+
+def test_record_event_typo_event_type_raises():
+    """A case-typo event_type (e.g. 'Co_Decision') is not whitelisted → raises."""
+    with pytest.raises(ValueError, match="unknown workflow audit event_type"):
+        record_event(
+            {"correlation_id": "c-1"},
+            "Co_Decision",         # capitalisation typo — not in frozenset
+            {"actor_id": "x", "actor_role": "CO", "package_hash": "h"},
+        )
+
+
+def test_record_event_high_consequence_missing_actor_id_raises():
+    """High-consequence event missing actor_id → raises before any DB write."""
+    with pytest.raises(ValueError, match="missing required payload keys"):
+        record_event(
+            {"correlation_id": "c-1"},
+            "modification_submitted",
+            # actor_id absent
+            {"actor_role": "CO", "package_hash": "abc123"},
+        )
+
+
+def test_record_event_high_consequence_missing_actor_role_raises():
+    """High-consequence event missing actor_role → raises before any DB write."""
+    with pytest.raises(ValueError, match="missing required payload keys"):
+        record_event(
+            {"correlation_id": "c-1"},
+            "package_superseded",
+            # actor_role absent
+            {"actor_id": "co-123", "package_hash": "abc123"},
+        )
+
+
+def test_record_event_high_consequence_missing_package_hash_raises():
+    """High-consequence event missing package_hash → raises before any DB write."""
+    with pytest.raises(ValueError, match="missing required payload keys"):
+        record_event(
+            {"correlation_id": "c-1"},
+            "co_decision",
+            # package_hash absent
+            {"actor_id": "co-123", "actor_role": "CO"},
+        )
+
+
+def test_record_event_non_high_consequence_does_not_require_actor_fields(monkeypatch):
+    """Non-high-consequence events (e.g. contract_lookup) do not require actor/hash fields."""
+    # Stub the DB write — we only care that no ValueError is raised for the missing actor keys.
+    from unittest.mock import MagicMock
+    import app.db as _db
+    mock_col = MagicMock()
+    fake_db = type("FakeDB", (), {"__getitem__": lambda s, k: mock_col})()
+    monkeypatch.setattr(_db, "get_db", lambda: fake_db)
+    record_event(
+        {"correlation_id": "c-1", "agency_id": "DOD"},
+        "contract_lookup",
+        {"contract_number": "W911-001"},   # no actor fields — allowed for non-HC events
+    )
+
+
 def test_llm_call_json_is_stub_safe():
     """With no AWS creds, bedrock returns a stub; call_json fails closed, not crashes."""
 

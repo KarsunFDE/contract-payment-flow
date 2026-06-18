@@ -44,6 +44,12 @@ BEDROCK_MODEL_ID = os.environ.get(
     "BEDROCK_MODEL_ID",
     "anthropic.claude-3-7-sonnet-20250219-v1:0",
 )
+# Stronger model used as a fallback when the primary (Haiku) draft is produced
+# from low-confidence grounding (ADR-0006: "Sonnet fallback only on confidence-fail").
+BEDROCK_FALLBACK_MODEL_ID = os.environ.get(
+    "BEDROCK_FALLBACK_MODEL_ID",
+    "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+)
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 
@@ -63,23 +69,29 @@ def _get_client():
 
 def invoke_model(prompt: str, *, system: str | None = None,
                   max_tokens: int = 1024,
-                  temperature: float = 0.2) -> dict[str, Any]:
+                  temperature: float = 0.2,
+                  model_id: str | None = None) -> dict[str, Any]:
     """
     InvokeModel against Anthropic Claude via Bedrock.
 
+    `model_id` overrides the default BEDROCK_MODEL_ID for this call (used by the
+    confidence-fail Sonnet fallback). The `model` key in the result reports which
+    id was actually used.
+
     Returns a dict with keys:
       - body: the model's text response (or stub)
-      - model: Bedrock model id
+      - model: Bedrock model id used
       - region: AWS region
       - stub: True if returned the stub fallback
 
     ⚠ Item 4 — return shape NOT Pydantic-validated.
     ⚠ Item 6 — no correlation-id forwarded.
     """
+    active_model = model_id or BEDROCK_MODEL_ID
     client = _get_client()
     if client is None:
         log.info("bedrock stub-fallback (no boto3 / no credentials)")
-        return _stub(prompt)
+        return _stub(prompt, model=active_model)
 
     messages = [{"role": "user", "content": prompt}]
     body: dict[str, Any] = {
@@ -93,7 +105,7 @@ def invoke_model(prompt: str, *, system: str | None = None,
 
     try:
         resp = client.invoke_model(
-            modelId=BEDROCK_MODEL_ID,
+            modelId=active_model,
             contentType="application/json",
             accept="application/json",
             body=json.dumps(body).encode("utf-8"),
@@ -106,19 +118,19 @@ def invoke_model(prompt: str, *, system: str | None = None,
                 text += block.get("text", "")
         return {
             "body": text or json.dumps(payload),
-            "model": BEDROCK_MODEL_ID,
+            "model": active_model,
             "region": AWS_REGION,
             "stub": False,
         }
     except (NoCredentialsError, BotoCoreError, ClientError) as exc:
         log.warning("bedrock InvokeModel failed (%s); returning stub", exc)
-        return _stub(prompt)
+        return _stub(prompt, model=active_model)
 
 
-def _stub(prompt: str) -> dict[str, Any]:
+def _stub(prompt: str, *, model: str = BEDROCK_MODEL_ID) -> dict[str, Any]:
     return {
         "body": f"[stub] would-Bedrock-respond to: {prompt[:80]}",
-        "model": BEDROCK_MODEL_ID,
+        "model": model,
         "region": AWS_REGION,
         "stub": True,
     }

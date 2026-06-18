@@ -15,17 +15,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Locked-failing test for brownfield-debt item 10
- * (no-multi-tenant-boundary in contract-modification-service).
+ * Brownfield-debt item 10 (no-multi-tenant-boundary) — FIXED week 4
+ * (was scheduled W2-Wed; multi-tenant-retrieval-boundary teaching anchor).
  *
- * Convention (see fde-10-week/pipeline/T27-debt-enforcement-spec.md):
- *   While the debt is present, ContractModificationService.listAll() calls
- *   repo.findAll() — an unfiltered cross-agency query. After W2-Wed
- *   multi-tenant-retrieval-boundary modernization, listAll() routes through
- *   repo.findByAgencyId(currentAgency) and never invokes findAll(). This
- *   test asserts the post-fix invariant; while debt is locked, it FAILS.
+ * WAS: ContractModificationService.listAll() called repo.findAll() — an
+ * unfiltered cross-agency query that leaked contract modifications across
+ * ALL agencies.
  *
- * Single Mockito verify() assertion — the locked state is observable by
+ * NOW (post-fix invariant asserted below): the authenticated/tenant-scoped
+ * listing routes through repo.findByAgencyId(agency) and never invokes
+ * repo.findAll(). The no-arg svc.listAll() remains intentionally cross-tenant
+ * ONLY for the public SAM.gov-style opportunities surface.
+ *
+ * Single Mockito verify() assertion — the fixed state is observable by
  * watching which repository method the service calls.
  */
 @Tag("brownfield_debt")
@@ -33,18 +35,15 @@ import static org.mockito.Mockito.when;
 class MultiTenantBoundaryDebtTest {
 
     @Test
-    void listAll_does_not_call_unfiltered_findAll_DEBT_LOCKED() {
+    void listAll_tenantScoped_filters_by_agency_and_never_calls_findAll() {
         ContractModificationRepository repo = mock(ContractModificationRepository.class);
         AuditLogger audit = mock(AuditLogger.class);
-        when(repo.findAll()).thenReturn(List.of());
         when(repo.findByAgencyId(anyString())).thenReturn(List.of());
         ContractModificationService svc = new ContractModificationService(repo, audit);
 
-        svc.listAll();
+        svc.listAll("AGENCY-X");
 
-        // EXPECTED-AFTER-FIX: listAll routes through findByAgencyId, never
-        // through findAll. While debt locked: ContractModificationService.listAll()
-        // returns repo.findAll() -> verify(never()) fails as expected.
+        verify(repo).findByAgencyId("AGENCY-X");
         verify(repo, never()).findAll();
     }
 }
